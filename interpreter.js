@@ -85,7 +85,6 @@ var parse = function(code) {
     }
 
     let isWhitespace = function(s) {
-        if (s == EOF) { return true; }
         return /\s/.test(s);
     }
 
