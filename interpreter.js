@@ -6,7 +6,7 @@ class Token {
     constructor(line, column) {
         this.line = line;
         this.col = column;
-        this.value = ""
+        this.value = ""; // basically the parse lexeme
     }
 }
 
@@ -23,6 +23,7 @@ class Definition extends Token{
         this.name = name;
         this.code = content;
         this.tokens = tokens;
+        this.value = content;
     }
 }
 
@@ -255,7 +256,24 @@ class Value {
         this.val = val;
         this.col = col;
     }
+
+    shortType() {
+        let abbr = {
+            "string" : "s",
+            "bool" : "b",
+            "number" : "n",
+            "quotation" : "q"
+        };
+
+        if (this.type in abbr) {return abbr[this.type]};
+        return this.type;
+    }
+
+    toString() {
+        return this.shortType() + ":" + this.val;
+    }
 }
+
 
 let runtimeError = function(msg) {
     return "runtimeError: " + msg;
@@ -374,13 +392,17 @@ let execute = function(prog, outputCallback, in_words, in_stack) {
             type_assert("quotation", src);
             runQuotation(src);
         },
+        "å" : () => {
+            output(stack);
+        },
     };
 
     let words = in_words || {};
     Object.assign(words, builtinWords);
 
     for (let token of prog) {
-        log("--> "+util.inspect(token) + "\nstack: ", util.inspect(stack));
+        //log("--> "+inspect(token) + "\nstack: ", util.inspect(stack));
+        log(token.value+ "\t" + "[" + stack + "]");
         if (token instanceof StringLiteral) {
             stack.push(new Value("string", token.value, token.col));
         } else if (token instanceof Quotation) {
@@ -413,10 +435,10 @@ let execute = function(prog, outputCallback, in_words, in_stack) {
 }
 
 let runTest = function(src) {
-    log("\nsrc: ", src);
+    //log("\nsrc: ", src);
     let prog = parse(src);
-    log("prog: ", prog);
-    log("result: ", execute(prog));
+    //log("prog: ", prog);
+    //log("result: ", execute(prog));
 }
 
 let run = function(src, outputCallback, words, stack) {

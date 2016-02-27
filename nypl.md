@@ -28,8 +28,7 @@ Stack state during the computation. `f` is the quotation `(s-1+d. d(0=)("done".)
     3ff         -- d
     3f          -- i
     f3          -- s
-    f3 -1       -- -1
-    f2          -- +
+    f2          -- -1 + # decrease by one
     f2          -- d. # prints the number
     f22         -- d
     f22ghk      -- (0=)("done".)(sdi) # condition, if and else quotations for ? combinator
@@ -99,7 +98,7 @@ Checks if given number is even.
 Define word `E`, divide given number, swap, drop, push 0, check for equality
 
     # (n -- is_even)
-    :E%sx0=
+    :E%sx0=;
 
 ### Whitespace
 
