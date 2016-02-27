@@ -15,6 +15,10 @@ To calculate the product of two sums 5+6 and 1 + 2:
     1 2 + 5 6 + * .
     > 90
 
+A terrible tail recursion for loop that prints the numbers 3, 2, 1:
+
+    4(s-1+d. d(0=)("done".)(sdi)?)di
+
 There's an explicit parameter stack that the programmer uses to call *words* - basically subroutines - and an implicit call stack provided by the implementation.
 
 Define a word `S` that duplicates (d) and then multiply the two values

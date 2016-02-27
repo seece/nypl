@@ -98,7 +98,7 @@ var parse = function(code, _context) {
     };
 
     let isBuiltin = (s) => {
-        return /[a-zäöå\.+-/*%]/.test(s);
+        return /[a-zäöå\.+-/*%!?=]/.test(s);
     }
 
     let isUserword = (s) => {
@@ -208,7 +208,7 @@ var parse = function(code, _context) {
                 throw scanningError("Unexpected EOF when reading a quotation.");
             }
 
-            if (c == '"') {quot += '"' + readString() + '"'}
+            if (c == '"') {quot += '"' + readString().value }
             if (c == "(") {parenDepth++;}
             if (c == ")") {
                 parenDepth--;
@@ -282,8 +282,16 @@ let execute = function(prog, outputCallback, in_words, in_stack) {
     })
 
     let makenum = (v) => (new Value("number", v));
+    let makebool = (v) => (new Value("bool", v));
     let type_assert = function(type, v) {
         if (v.type != type){throw runtimeError("Got value of type " + v.type + " insted of " + type + "!")}
+    }
+
+    let runQuotation = (src) => {
+        let new_prog = parse(src.val, {"offset" : src.col });
+        //log("  src: '" + src.val + "'");
+        //log("  compiled: ", new_prog);
+        execute(new_prog, outputCallback, words, stack);
     }
 
     let builtinWords = {
@@ -301,12 +309,12 @@ let execute = function(prog, outputCallback, in_words, in_stack) {
             stack.push(b);
         },
         "r" : () => {
-            let a = pop();
-            let b = pop();
             let c = pop();
-            stack.push(c);
-            stack.push(b);
-            stack.push(a);
+            let b = pop();
+            let a = pop();
+            push(c);
+            push(a);
+            push(b);
         },
         "+" : () => {
             let a = pop();
@@ -331,17 +339,40 @@ let execute = function(prog, outputCallback, in_words, in_stack) {
             let b = pop();
             type_assert("number", a);
             type_assert("number", b);
-            stack.push(makenum(a.val * b.val));},
+            push(makenum(a.val * b.val))},
+        "=" : () => {
+            let a = pop();
+            let b = pop();
+            // allow true == 1.0 --> true
+            stack.push(makebool(a.val == b.val));},
+        "!" : () => {
+            let a = pop();
+            if (a.val) {
+                push(makebool(false));
+            } else {
+                push(makebool(true));
+            }},
+        "?" : () => {
+            let else_quot = pop();
+            let then_quot = pop();
+            let if_quot = pop();
+            type_assert("quotation", if_quot);
+            type_assert("quotation", then_quot);
+            type_assert("quotation", else_quot);
+            runQuotation(if_quot);
+            let result = pop();
+            type_assert("bool", result);
+            if (result.val) {
+                runQuotation(then_quot);
+            } else {
+                runQuotation(else_quot);
+            }
+        },
         "i" : () => {
             console.log(stack);
             let src = pop();
-            if (src.type != "quotation") {
-                throw runtimeError("Trying to execute value of type " + src.type);
-            }
-            let new_prog = parse(src.val, {"offset" : src.col });
-            log("  src: '" + src.val + "'");
-            log("  compiled: ", new_prog);
-            execute(new_prog, outputCallback, words, stack);
+            type_assert("quotation", src);
+            runQuotation(src);
         },
     };
 
