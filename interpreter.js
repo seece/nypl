@@ -1,5 +1,6 @@
 "use strict";
 var util = require("util");
+var exports = module.exports = {};
 
 class Token {
     constructor(line, column) {
@@ -17,10 +18,11 @@ class Word extends Token {
 }
 
 class Definition extends Token{
-    constructor(column, name, content) {
+    constructor(column, name, content, tokens) {
         super(0, column);
         this.name = name;
         this.code = content;
+        this.tokens = tokens;
     }
 }
 
@@ -45,9 +47,9 @@ class StringLiteral extends Literal {
 }
 
 class Quotation extends Literal {
-    constructor(column, startColumn, value) {
+    constructor(column, col, value) {
         super(column, value);
-        this.startColumn = startColumn
+        this.col = col
     }
 }
 
@@ -108,6 +110,7 @@ var parse = function(code, _context) {
     }
 
     let isDigit = (s) => {
+        if (s == EOF) { return false; } // EOF = -1 casts to "-1" which matches
         return /\d/.test(s);
     }
 
@@ -175,7 +178,6 @@ var parse = function(code, _context) {
     }
 
     let readDefinition = () => {
-        read(); // skip the colon
         skipWhitespace();
         let userword = read();
         let c = read();
@@ -188,11 +190,14 @@ var parse = function(code, _context) {
             c = read();
         }
 
-        return new Definition(getColumn(), userword, usercode);
+        var tokens = parse(usercode, {
+            "desc" : "definition of "+userword,
+            "offset" : getColumn()});
+        return new Definition(getColumn(), userword, usercode, tokens);
     }
 
     let readQuotation = () => {
-        let startColumn = getColumn();
+        let col = getColumn();
         let quot = "";
         let parenDepth = 1;
 
@@ -216,7 +221,7 @@ var parse = function(code, _context) {
             c = read();
         }
 
-        return new Quotation(getColumn(), startColumn, quot);
+        return new Quotation(getColumn(), col, quot);
     }
 
     let tokens = [];
@@ -245,10 +250,10 @@ var parse = function(code, _context) {
 }
 
 class Value {
-    constructor(type, val, startColumn) {
+    constructor(type, val, col) {
         this.type = type;
         this.val = val;
-        this.startColumn = startColumn;
+        this.col = col;
     }
 }
 
@@ -256,7 +261,7 @@ let runtimeError = function(msg) {
     return "runtimeError: " + msg;
 }
 
-let execute = function(prog, in_words, in_stack) {
+let execute = function(prog, outputCallback, in_words, in_stack) {
     // The caller can pass in a stack and a dictionary context.
     // They are used in quotation invocation.
     let stack = in_stack || [];
@@ -267,11 +272,18 @@ let execute = function(prog, in_words, in_stack) {
         }
         return stack.pop();
     }
-    let push = (value) => {
-        stack.push(value);
+
+    let push = (a) => {
+        stack.push(a);
     }
-    let output = (obj) => {
-        console.log("> ", obj);
+
+    let output = outputCallback || ((obj) => {
+        console.log(">> ", obj);
+    })
+
+    let makenum = (v) => (new Value("number", v));
+    let type_assert = function(type, v) {
+        if (v.type != type){throw runtimeError("Got value of type " + v.type + " insted of " + type + "!")}
     }
 
     let builtinWords = {
@@ -281,30 +293,55 @@ let execute = function(prog, in_words, in_stack) {
             push(a);},
         "x" : () => {
             pop();},
-        "." : () => {output(stack.pop())},
-        "+" : () => {stack.push(stack.pop() + stack.pop());},
+        "." : () => {output(pop().val)},
+        "s" : () => {
+            let a = pop();
+            let b = pop();
+            stack.push(a);
+            stack.push(b);
+        },
+        "r" : () => {
+            let a = pop();
+            let b = pop();
+            let c = pop();
+            stack.push(c);
+            stack.push(b);
+            stack.push(a);
+        },
+        "+" : () => {
+            let a = pop();
+            let b = pop();
+            type_assert("number", a);
+            type_assert("number", b);
+            stack.push(makenum(a.val + b.val));},
         "-" : () => {
             let a = pop();
             let b = pop();
-            stack.push(a.val - b.val);},
+            type_assert("number", a);
+            type_assert("number", b);
+            stack.push(makenum(a.val - b.val));},
         "/" : () => {
             let a = pop();
             let b = pop();
-            stack.push(a.val / b.val);},
+            type_assert("number", a);
+            type_assert("number", b);
+            stack.push(makenum(a.val / b.val));},
         "*" : () => {
             let a = pop();
             let b = pop();
-            stack.push(a.val * b.val);},
+            type_assert("number", a);
+            type_assert("number", b);
+            stack.push(makenum(a.val * b.val));},
         "i" : () => {
             console.log(stack);
             let src = pop();
             if (src.type != "quotation") {
                 throw runtimeError("Trying to execute value of type " + src.type);
             }
-            let new_prog = parse(src.val, {"offset" : src.startColumn });
+            let new_prog = parse(src.val, {"offset" : src.col });
             log("  src: '" + src.val + "'");
             log("  compiled: ", new_prog);
-            execute(new_prog, words, stack);
+            execute(new_prog, outputCallback, words, stack);
         },
     };
 
@@ -312,11 +349,11 @@ let execute = function(prog, in_words, in_stack) {
     Object.assign(words, builtinWords);
 
     for (let token of prog) {
-        log("stack: ", stack);
+        log("--> "+util.inspect(token) + "\nstack: ", util.inspect(stack));
         if (token instanceof StringLiteral) {
             stack.push(new Value("string", token.value, token.col));
         } else if (token instanceof Quotation) {
-            stack.push(new Value("quotation", token.value, token.startColumn));
+            stack.push(new Value("quotation", token.value, token.col));
         } else if (token instanceof NumberLiteral) {
             stack.push(new Value("number", parseFloat(token.value), token.col));
         } else if (token instanceof Word) {
@@ -330,6 +367,10 @@ let execute = function(prog, in_words, in_stack) {
             if (token.name in builtinWords) {
                 throw runtimeError("Trying to redefine builtin word at "+token.col+": " + token.name);
             }
+
+            words[token.name] = () => {
+                execute(token.tokens, outputCallback, words, stack);
+            };
 
         } else {
             throw runtimeError("Invalid token at "+token.col+": " + util.inspect(token));
@@ -347,9 +388,18 @@ let runTest = function(src) {
     log("result: ", execute(prog));
 }
 
+let run = function(src, outputCallback, words, stack) {
+    return execute(parse(src), outputCallback, words, stack);
+}
+
 runTest(" 13 2+.0.5 -10.1 *.");
 runTest(" \"hello \\\"world\\\" :)\"");
 runTest(" :  Xxxpp;");
 runTest("4 d *.");
 runTest(" (4 d *)i.");
+runTest("5");
+
+exports.parse = parse;
+exports.execute = execute;
+exports.run = run;
 
