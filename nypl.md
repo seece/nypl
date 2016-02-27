@@ -15,9 +15,45 @@ To calculate the product of two sums 5+6 and 1 + 2:
     1 2 + 5 6 + * .
     > 90
 
-A terrible tail recursion for loop that prints the numbers 3, 2, 1:
 
-    4(s-1+d. d(0=)("done".)(sdi)?)di
+A terrible tail recursion for loop that prints the numbers 2, 1, 0:
+
+    3(s-1+d. d(0=)("done".)(sdi)?)di
+
+Stack state during the computation. `f` is the quotation `(s-1+d. d(0=)("done".)(sdi)?)`. `g`, `h` and `k` are also quotations. On the right hand side the command that has executed is shown.
+
+    STACK          COMMANDS
+    3           -- 3
+    3f          -- f
+    3ff         -- d
+    3f          -- i
+    f3          -- s
+    f3 -1       -- -1
+    f2          -- +
+    f2          -- d. # prints the number
+    f22         -- d
+    f22ghk      -- (0=)("done".)(sdi) # condition, if and else quotations for ? combinator
+    f22         -- ?
+
+    f20         -- 0= # does not equal to zero, push false = 0
+    f2          -- ? pops off the result and checks it
+    2f          -- s # the "else" part of the ? combinator was taken
+    2ff         -- d
+    2f          -- i # recursion back to quotation f
+
+    ... recurse until number is 0
+
+    1f          -- # the last iteration of recursion
+    f0          -- s-1+
+    f0          -- d. # print 0
+    f00ghk      -- push the arguments for ?
+    f00         -- ?
+    f01         -- 0=
+    f0"done"    -- push string "done"
+    f0          -- . # print string "done"
+
+In this case two values `f` and `0` were left on stack after exit. These could've been removed with `xx`.
+
 
 There's an explicit parameter stack that the programmer uses to call *words* - basically subroutines - and an implicit call stack provided by the implementation.
 
