@@ -402,7 +402,6 @@ let execute = function(prog, outputCallback, in_words, in_stack) {
 
     for (let token of prog) {
         //log("--> "+inspect(token) + "\nstack: ", util.inspect(stack));
-        log(token.value+ "\t" + "[" + stack + "]");
         if (token instanceof StringLiteral) {
             stack.push(new Value("string", token.value, token.col));
         } else if (token instanceof Quotation) {
@@ -429,6 +428,7 @@ let execute = function(prog, outputCallback, in_words, in_stack) {
             throw runtimeError("Invalid token at "+token.col+": " + util.inspect(token));
         }
 
+        log(token.value+ "\t" + "[" + stack + "]");
     }
 
     return stack
