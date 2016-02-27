@@ -270,6 +270,10 @@ class Value {
     }
 
     toString() {
+        if (this.type == "quotation") {
+            return "q" + this.col;
+
+        }
         return this.shortType() + ":" + this.val;
     }
 }
@@ -387,7 +391,6 @@ let execute = function(prog, outputCallback, in_words, in_stack) {
             }
         },
         "i" : () => {
-            console.log(stack);
             let src = pop();
             type_assert("quotation", src);
             runQuotation(src);
