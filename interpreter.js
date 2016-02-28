@@ -283,10 +283,12 @@ let runtimeError = function(msg) {
     return "runtimeError: " + msg;
 }
 
-let execute = function(prog, outputCallback, in_words, in_stack) {
+
+let execute = function(prog, outputCallback, in_words, in_stack, in_indent) {
     // The caller can pass in a stack and a dictionary context.
     // They are used in quotation invocation.
     let stack = in_stack || [];
+    let indent = in_indent || 0;
 
     let pop = () => {
         if (stack.length == 0) {
@@ -313,7 +315,7 @@ let execute = function(prog, outputCallback, in_words, in_stack) {
         let new_prog = parse(src.val, {"offset" : src.col });
         //log("  src: '" + src.val + "'");
         //log("  compiled: ", new_prog);
-        execute(new_prog, outputCallback, words, stack);
+        execute(new_prog, outputCallback, words, stack, indent+1);
     }
 
     let builtinWords = {
@@ -407,7 +409,7 @@ let execute = function(prog, outputCallback, in_words, in_stack) {
             let times = amt.val;
             while (times > 0) {
                 times--;
-                execute(new_prog, outputCallback, words, stack);
+                execute(new_prog, outputCallback, words, stack, indent+1);
             }
         },
         "i" : () => {
@@ -451,7 +453,7 @@ let execute = function(prog, outputCallback, in_words, in_stack) {
             throw runtimeError("Invalid token at "+token.col+": " + util.inspect(token));
         }
 
-        log(token.value+ "\t" + "[" + stack + "]");
+        log(" ".repeat(indent)+token.value+ "\t" + "[" + stack + "]");
     }
 
     return stack
