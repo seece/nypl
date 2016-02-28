@@ -99,7 +99,7 @@ var parse = function(code, _context) {
     };
 
     let isBuiltin = (s) => {
-        return /[a-zäöå\.+-/*%!?=<>]/.test(s);
+        return /[a-zäöå\.+-/*%!?=<>t]/.test(s);
     }
 
     let isUserword = (s) => {
@@ -396,6 +396,18 @@ let execute = function(prog, outputCallback, in_words, in_stack) {
                 runQuotation(then_quot);
             } else {
                 runQuotation(else_quot);
+            }
+        },
+        "t" : () => {
+            let src = pop();
+            let amt = pop();
+            type_assert("number", amt);
+            type_assert("quotation", src);
+            let new_prog = parse(src.val, {"offset" : src.col });
+            let times = amt.val;
+            while (times > 0) {
+                times--;
+                execute(new_prog, outputCallback, words, stack);
             }
         },
         "i" : () => {

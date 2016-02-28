@@ -51,7 +51,7 @@ Stack state during the computation. `f` is the quotation `(s-1+d. d(0=)("done".)
     f0"done"    -- push string "done"
     f0          -- . # print string "done"
 
-In this case two values `f` and `0` were left on stack after exit. These could've been removed with `xx`.
+In this case two values `f` and `0` were left on stack after exit. These could've been removed with `xx`. There's also an easier way to do loops, see [Looping](#looping).
 
 
 There's an explicit parameter stack that the programmer uses to call *words* - basically subroutines - and an implicit call stack provided by the implementation.
@@ -150,4 +150,14 @@ The following code returns x+2 if the value x on top of the stack is more than 3
 
 
 This idea is ripped from [factor](http://docs.factorcode.org/content/article-cookbook-combinators.html)/Joy.
+
+### Looping
+
+The times, or `t` operator can be used to repeat a quotation.
+
+    t   = times (a b -- ) quotation b gets repeated 'a' times
+
+Example: print `hi` five times:
+
+    5("hi" .)t
 
