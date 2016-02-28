@@ -149,8 +149,6 @@ The following code returns x+2 if the value x on top of the stack is more than 3
     (3>)(2+)(x0)?
 
 
-This idea is ripped from [factor](http://docs.factorcode.org/content/article-cookbook-combinators.html)/Joy.
-
 ### Looping
 
 The times, or `t` operator can be used to repeat a quotation.
@@ -159,5 +157,5 @@ The times, or `t` operator can be used to repeat a quotation.
 
 Example: print `hi` five times:
 
-    5("hi" .)t
+    5("hi".)t
 
