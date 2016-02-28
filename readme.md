@@ -82,6 +82,9 @@ Where `input` is the stack state before calling the word and `output` is the end
     + = addition ( a b -- sum )
     - = subtraction ( a b -- difference )
     * = multiplication ( a b -- product )
+    = = equality ( a b -- true_if_equal )
+    < = less than ( a b -- a < b )
+    > = less than ( a b -- a > b )
 
 ## I/O operators
 

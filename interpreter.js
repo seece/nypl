@@ -99,7 +99,7 @@ var parse = function(code, _context) {
     };
 
     let isBuiltin = (s) => {
-        return /[a-zäöå\.+-/*%!?=]/.test(s);
+        return /[a-zäöå\.+-/*%!?=<>]/.test(s);
     }
 
     let isUserword = (s) => {
@@ -367,6 +367,14 @@ let execute = function(prog, outputCallback, in_words, in_stack) {
             let b = pop();
             // allow true == 1.0 --> true
             stack.push(makebool(a.val == b.val));},
+        "<" : () => {
+            let a = pop();
+            let b = pop();
+            stack.push(makebool(b.val < a.val));},
+        ">" : () => {
+            let a = pop();
+            let b = pop();
+            stack.push(makebool(b.val > a.val));},
         "!" : () => {
             let a = pop();
             if (a.val) {
