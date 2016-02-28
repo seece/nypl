@@ -1,7 +1,7 @@
 # The Nypl Language Spec v0.1ses
 *Designed for Simo™*
 
-A Forth-like, almost concatenative language with functional features, inspired by Factor, [Joy](http://www.kevinalbrecht.com/code/joy-mirror/j01tut.html), lisp and Kx Systems' Q language.
+A Forth-like, almost concatenative language with functional features, inspired by Factor, [Joy](http://www.kevinalbrecht.com/code/joy-mirror/j01tut.html), lisp, [IBNIZ](http://pelulamu.net/ibniz/) and Kx Systems' Q language.
 
 ## Examples
 

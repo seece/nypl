@@ -343,19 +343,19 @@ let execute = function(prog, outputCallback, in_words, in_stack) {
             let b = pop();
             type_assert("number", a);
             type_assert("number", b);
-            stack.push(makenum(a.val + b.val));},
+            stack.push(makenum(b.val + a.val));},
         "-" : () => {
             let a = pop();
             let b = pop();
             type_assert("number", a);
             type_assert("number", b);
-            stack.push(makenum(a.val - b.val));},
+            stack.push(makenum(b.val - a.val));},
         "/" : () => {
             let a = pop();
             let b = pop();
             type_assert("number", a);
             type_assert("number", b);
-            stack.push(makenum(a.val / b.val));},
+            stack.push(makenum(b.val / a.val));},
         "*" : () => {
             let a = pop();
             let b = pop();
