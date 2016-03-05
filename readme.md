@@ -3,6 +3,8 @@
 
 A Forth-like, almost concatenative language with functional features, inspired by Factor, [Joy](http://www.kevinalbrecht.com/code/joy-mirror/j01tut.html), lisp, [IBNIZ](http://pelulamu.net/ibniz/) and Kx Systems' Q language.
 
+[Try Nypl online!](http://seece.github.io/nypl/)
+
 ## Examples
 
 To compute sum of two numbers, push the literals `1` and `2` on the stack and then call the `+` word to sum them. Finally `.` word is executed to print the top of the stack.
