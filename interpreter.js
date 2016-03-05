@@ -466,7 +466,8 @@ let runTest = function(src) {
     //log("result: ", execute(prog));
 }
 
-let run = function(src, outputCallback, words, stack) {
+let run = function(src, outputCallback, logCallback, words, stack) {
+    log = logCallback || console.log;
     return execute(parse(src), outputCallback, words, stack);
 }
 
