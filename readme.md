@@ -144,9 +144,9 @@ The `?` combinator can be used for conditional execution of code.
 
     ? = conditional (condition)(then)(else)
 
-The following code returns x+2 if the value x on top of the stack is more than 3, and 0 otherwise.
+The following code returns 6, since 4 > 3. Otherwise it would've returned 0.
 
-    (3>)(2+)(x0)?
+    4(d3>)(2+)(x0)?
 
 
 ### Looping
