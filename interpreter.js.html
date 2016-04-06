@@ -1,0 +1,562 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+<html>
+<head>
+<meta http-equiv="content-type" content="text/html; charset=UTF-8">
+<title>E:\dev\web\nypl\interpreter.js.html</title>
+<meta name="Generator" content="Vim/7.4">
+<meta name="plugin-version" content="vim7.4_v1">
+<meta name="syntax" content="javascript">
+<meta name="settings" content="use_css,pre_wrap,no_foldcolumn,expand_tabs,prevent_copy=">
+<meta name="colorscheme" content="slate">
+<style type="text/css">
+<!--
+pre { white-space: pre-wrap; font-family: monospace; color: #ffffff; background-color: #262626; }
+body { font-family: monospace; color: #ffffff; background-color: #262626; }
+* { font-size: 1em; }
+.Function { color: #ffdead; }
+.Special { color: #bdb76b; }
+.Operator { color: #ff0000; }
+.Type { color: #6495ed; font-weight: bold; }
+.Identifier { color: #fa8072; }
+.String { color: #87ceeb; }
+.Comment { color: #666666; }
+.Statement { color: #6495ed; font-weight: bold; }
+.Constant { color: #ffa0a0; }
+-->
+</style>
+
+<script type='text/javascript'>
+<!--
+
+-->
+</script>
+</head>
+<body>
+<pre id='vimCodeElement'>
+<span class="String">&quot;use strict&quot;</span>;
+<span class="Identifier">var</span> util = require(<span class="String">&quot;util&quot;</span>);
+<span class="Identifier">var</span> exports = module.exports = <span class="Function">{}</span>;
+
+<span class="Statement">class</span> Token <span class="Function">{</span>
+    constructor(line, column) <span class="Function">{</span>
+        <span class="Identifier">this</span>.line = line;
+        <span class="Identifier">this</span>.col = column;
+        <span class="Identifier">this</span>.value = <span class="String">&quot;&quot;</span>; <span class="Comment">// basically the parse lexeme</span>
+    <span class="Function">}</span>
+<span class="Function">}</span>
+
+<span class="Statement">class</span> Word <span class="Statement">extends</span> Token <span class="Function">{</span>
+    constructor(column, word) <span class="Function">{</span>
+        <span class="Statement">super</span>(0, column);
+        <span class="Identifier">this</span>.value = word;
+    <span class="Function">}</span>
+<span class="Function">}</span>
+
+<span class="Statement">class</span> Definition <span class="Statement">extends</span> Token<span class="Function">{</span>
+    constructor(column, name, content, tokens) <span class="Function">{</span>
+        <span class="Statement">super</span>(0, column);
+        <span class="Identifier">this</span>.name = name;
+        <span class="Identifier">this</span>.code = content;
+        <span class="Identifier">this</span>.tokens = tokens;
+        <span class="Identifier">this</span>.value = content;
+    <span class="Function">}</span>
+<span class="Function">}</span>
+
+
+<span class="Statement">class</span> Literal <span class="Statement">extends</span> Token <span class="Function">{</span>
+    constructor(column, value) <span class="Function">{</span>
+        <span class="Statement">super</span>(0, column);
+        <span class="Identifier">this</span>.value = value;
+    <span class="Function">}</span>
+<span class="Function">}</span>
+
+<span class="Statement">class</span> NumberLiteral <span class="Statement">extends</span> Literal <span class="Function">{</span>
+    constructor(column, value) <span class="Function">{</span>
+        <span class="Statement">super</span>(column, value);
+    <span class="Function">}</span>
+<span class="Function">}</span>
+
+<span class="Statement">class</span> StringLiteral <span class="Statement">extends</span> Literal <span class="Function">{</span>
+    constructor(column, value) <span class="Function">{</span>
+        <span class="Statement">super</span>(column, value);
+    <span class="Function">}</span>
+<span class="Function">}</span>
+
+<span class="Statement">class</span> Quotation <span class="Statement">extends</span> Literal <span class="Function">{</span>
+    constructor(column, col, value) <span class="Function">{</span>
+        <span class="Statement">super</span>(column, value);
+        <span class="Identifier">this</span>.col = col
+    <span class="Function">}</span>
+<span class="Function">}</span>
+
+<span class="Identifier">var</span> log = console.log;
+
+<span class="Identifier">var</span> parse = <span class="Function">function</span>(code, _context) <span class="Function">{</span>
+    <span class="Identifier">let</span> pos = 0; <span class="Comment">// points to the next character to be read</span>
+    <span class="Statement">const</span> EOF = -1;
+    <span class="Identifier">let</span> context = _context || <span class="Function">{</span><span class="String">&quot;offset&quot;</span> : 0<span class="Function">}</span>;
+
+    <span class="Identifier">let</span> getColumn = () =&gt; <span class="Function">{</span>
+        <span class="Statement">return</span> context.offset + pos-1;
+    <span class="Function">}</span>
+
+    <span class="Identifier">let</span> scanningError = (msg) =&gt; <span class="Function">{</span>
+        <span class="Statement">return</span> <span class="String">&quot;ScanningError at &quot;</span>+(getColumn())+<span class="String">&quot;: &quot;</span> + msg;
+    <span class="Function">}</span>
+
+    <span class="Identifier">let</span> peek = () =&gt; <span class="Function">{</span>
+        <span class="Statement">if</span> (pos &gt;= code.length) <span class="Function">{</span>
+            <span class="Statement">return</span> EOF;
+        <span class="Function">}</span>
+
+        <span class="Identifier">let</span> c = code<span class="Function">[</span>pos<span class="Function">]</span>;
+        <span class="Statement">return</span> c;
+    <span class="Function">}</span>;
+
+    <span class="Identifier">let</span> getLast = () =&gt; <span class="Function">{</span>
+        <span class="Statement">if</span> (pos &gt; code.length) <span class="Function">{</span>
+            <span class="Statement">return</span> EOF;
+        <span class="Function">}</span>
+
+        <span class="Statement">return</span> code<span class="Function">[</span>pos-1<span class="Function">]</span>;
+    <span class="Function">}</span>
+
+    <span class="Identifier">let</span> read = () =&gt; <span class="Function">{</span>
+        <span class="Statement">if</span> (pos &gt;= code.length) <span class="Function">{</span>
+            <span class="Statement">return</span> EOF;
+        <span class="Function">}</span>
+        <span class="Identifier">let</span> c = code<span class="Function">[</span>pos<span class="Function">]</span>;
+        pos++;
+        <span class="Statement">return</span> c;
+    <span class="Function">}</span>
+
+    <span class="Identifier">let</span> program = () =&gt; <span class="Function">{</span>
+    <span class="Function">}</span>;
+
+    <span class="Identifier">let</span> isBuiltin = (s) =&gt; <span class="Function">{</span>
+        <span class="Statement">return</span> <span class="String">/[a-zäöå\.+-/*%!?=&lt;&gt;t]/</span>.test(s);
+    <span class="Function">}</span>
+
+    <span class="Identifier">let</span> isUserword = (s) =&gt; <span class="Function">{</span>
+        <span class="Statement">return</span> <span class="String">/[A-ZÄÖÅ]/</span>.test(s);
+    <span class="Function">}</span>
+
+    <span class="Identifier">let</span> isWhitespace = (s) =&gt; <span class="Function">{</span>
+        <span class="Statement">return</span> <span class="String">/\s/</span>.test(s);
+    <span class="Function">}</span>
+
+    <span class="Identifier">let</span> isDigit = (s) =&gt; <span class="Function">{</span>
+        <span class="Statement">if</span> (s == EOF) <span class="Function">{</span> <span class="Statement">return</span> <span class="Constant">false</span>; <span class="Function">}</span> <span class="Comment">// EOF = -1 casts to &quot;-1&quot; which matches</span>
+        <span class="Statement">return</span> <span class="String">/\d/</span>.test(s);
+    <span class="Function">}</span>
+
+    <span class="Identifier">let</span> in_string = <span class="Constant">false</span>;
+    <span class="Identifier">let</span> c = read();
+    <span class="Identifier">let</span> current = <span class="String">&quot;&quot;</span>;
+
+    <span class="Comment">// We assume isDigit(read()) = true</span>
+    <span class="Identifier">let</span> readNumber = () =&gt; <span class="Function">{</span>
+        <span class="Identifier">let</span> digit = getLast();
+
+        <span class="Statement">while</span> (isDigit(peek())) <span class="Function">{</span>
+            digit += read();
+        <span class="Function">}</span>
+
+        <span class="Statement">if</span> (peek() == <span class="String">&quot;.&quot;</span>) <span class="Function">{</span>
+            digit += read();
+            <span class="Statement">while</span> (isDigit(peek())) <span class="Function">{</span>
+                digit += read();
+            <span class="Function">}</span>
+        <span class="Function">}</span>
+
+        <span class="Identifier">let</span> number = <span class="Operator">new</span> NumberLiteral(getColumn(), digit);
+        <span class="Statement">return</span> number;
+    <span class="Function">}</span>
+
+    <span class="Identifier">let</span> readWord = () =&gt; <span class="Function">{</span>
+        <span class="Comment">// All identifiers are single characters.</span>
+        <span class="Statement">return</span> <span class="Operator">new</span> Word(getColumn(), getLast());
+    <span class="Function">}</span>
+
+    <span class="Identifier">let</span> readString = () =&gt; <span class="Function">{</span>
+        <span class="Identifier">let</span> str = <span class="String">&quot;&quot;</span>;
+
+        <span class="Identifier">let</span> c = read();
+        <span class="Statement">while</span> (c != EOF) <span class="Function">{</span>
+            <span class="Statement">if</span> (c == <span class="String">&quot;</span><span class="Special">\\</span><span class="String">&quot;</span>) <span class="Function">{</span>
+                <span class="Identifier">let</span> esc = read();
+                <span class="Identifier">let</span> escapes = <span class="Function">{</span>
+                    <span class="String">&quot;n&quot;</span> : <span class="String">&quot;</span><span class="Special">\n</span><span class="String">&quot;</span>,
+                    <span class="String">&quot;t&quot;</span> : <span class="String">&quot;</span><span class="Special">\t</span><span class="String">&quot;</span>,
+                    <span class="String">'&quot;'</span> : <span class="String">'&quot;'</span>,
+                <span class="Function">}</span>
+                <span class="Statement">if</span> (esc <span class="Statement">in</span> escapes) <span class="Function">{</span>
+                    str += escapes<span class="Function">[</span>esc<span class="Function">]</span>;
+                <span class="Function">}</span> <span class="Statement">else</span> <span class="Function">{</span>
+                    <span class="Statement">throw</span> scanningError(<span class="String">&quot;Invalid escape char: &quot;</span> + esc);
+                <span class="Function">}</span>
+            <span class="Function">}</span> <span class="Statement">else</span> <span class="Statement">if</span> (c == <span class="String">&quot;</span><span class="Special">\&quot;</span><span class="String">&quot;</span>) <span class="Function">{</span>
+                <span class="Statement">break</span>;
+            <span class="Function">}</span> <span class="Statement">else</span> <span class="Function">{</span>
+                str += c;
+            <span class="Function">}</span>
+
+            c = read();
+        <span class="Function">}</span>
+
+        <span class="Statement">return</span> <span class="Operator">new</span> StringLiteral(getColumn(), str);
+    <span class="Function">}</span>
+
+    <span class="Identifier">let</span> skipWhitespace = () =&gt; <span class="Function">{</span>
+        <span class="Statement">while</span> (isWhitespace(peek()) &amp;&amp; peek() != EOF) <span class="Function">{</span>
+            read();
+        <span class="Function">}</span>
+    <span class="Function">}</span>
+
+    <span class="Identifier">let</span> readDefinition = () =&gt; <span class="Function">{</span>
+        skipWhitespace();
+        <span class="Identifier">let</span> userword = read();
+        <span class="Identifier">let</span> c = read();
+        <span class="Identifier">let</span> usercode = <span class="String">&quot;&quot;</span>
+        <span class="Statement">while</span> (c != <span class="String">&quot;;&quot;</span>) <span class="Function">{</span>
+            <span class="Statement">if</span> (peek() == EOF) <span class="Function">{</span>
+                <span class="Statement">throw</span> scanningError(<span class="String">&quot;Unexpected EOF when reading a definition.&quot;</span>);
+            <span class="Function">}</span>
+            usercode += c;
+            c = read();
+        <span class="Function">}</span>
+
+        <span class="Identifier">var</span> tokens = parse(usercode, <span class="Function">{</span>
+            <span class="String">&quot;desc&quot;</span> : <span class="String">&quot;definition of &quot;</span>+userword,
+            <span class="String">&quot;offset&quot;</span> : getColumn()<span class="Function">}</span>);
+        <span class="Statement">return</span> <span class="Operator">new</span> Definition(getColumn(), userword, usercode, tokens);
+    <span class="Function">}</span>
+
+    <span class="Identifier">let</span> readQuotation = () =&gt; <span class="Function">{</span>
+        <span class="Identifier">let</span> col = getColumn();
+        <span class="Identifier">let</span> quot = <span class="String">&quot;&quot;</span>;
+        <span class="Identifier">let</span> parenDepth = 1;
+
+        <span class="Identifier">let</span> c = read();
+
+        <span class="Statement">while</span> (parenDepth &gt; 0) <span class="Function">{</span>
+            <span class="Statement">if</span> (c == EOF) <span class="Function">{</span>
+                <span class="Statement">throw</span> scanningError(<span class="String">&quot;Unexpected EOF when reading a quotation.&quot;</span>);
+            <span class="Function">}</span>
+
+            <span class="Statement">if</span> (c == <span class="String">'&quot;'</span>) <span class="Function">{</span>quot += <span class="String">'&quot;'</span> + readString().value <span class="Function">}</span>
+            <span class="Statement">if</span> (c == <span class="String">&quot;(&quot;</span>) <span class="Function">{</span>parenDepth++;<span class="Function">}</span>
+            <span class="Statement">if</span> (c == <span class="String">&quot;)&quot;</span>) <span class="Function">{</span>
+                parenDepth--;
+                <span class="Statement">if</span> (parenDepth == 0) <span class="Function">{</span>
+                    <span class="Statement">break</span>;
+                <span class="Function">}</span>
+            <span class="Function">}</span>
+
+            quot += c;
+            c = read();
+        <span class="Function">}</span>
+
+        <span class="Statement">return</span> <span class="Operator">new</span> Quotation(getColumn(), col, quot);
+    <span class="Function">}</span>
+
+    <span class="Identifier">let</span> tokens = <span class="Function">[]</span>;
+
+    <span class="Statement">while</span> (c != EOF) <span class="Function">{</span>
+        <span class="Comment">//log(&quot;c:'&quot; + c + &quot;'&quot;);</span>
+        <span class="Statement">if</span> (!isWhitespace(c)) <span class="Function">{</span>
+            <span class="Statement">if</span> (c == <span class="String">'&quot;'</span>) <span class="Function">{</span>
+                tokens.push(readString());
+            <span class="Function">}</span> <span class="Statement">else</span> <span class="Statement">if</span> (isDigit(c) || c == <span class="String">'-'</span> &amp;&amp; isDigit(peek())) <span class="Function">{</span>
+                tokens.push(readNumber());
+            <span class="Function">}</span> <span class="Statement">else</span> <span class="Statement">if</span> (isUserword(c) || isBuiltin(c)) <span class="Function">{</span>
+                tokens.push(readWord());
+            <span class="Function">}</span> <span class="Statement">else</span> <span class="Statement">if</span> (c == <span class="String">':'</span>) <span class="Function">{</span>
+                tokens.push(readDefinition());
+            <span class="Function">}</span> <span class="Statement">else</span> <span class="Statement">if</span> (c == <span class="String">'('</span>) <span class="Function">{</span>
+                tokens.push(readQuotation());
+            <span class="Function">}</span> <span class="Statement">else</span> <span class="Function">{</span>
+                <span class="Statement">throw</span> scanningError(<span class="String">&quot;Invalid character '&quot;</span> + c + <span class="String">&quot;' at &quot;</span> + (getColumn()));
+            <span class="Function">}</span>
+        <span class="Function">}</span>
+        c = read();
+    <span class="Function">}</span>
+
+    <span class="Statement">return</span> tokens;
+<span class="Function">}</span>
+
+<span class="Statement">class</span> Value <span class="Function">{</span>
+    constructor(type, val, col) <span class="Function">{</span>
+        <span class="Identifier">this</span>.type = type;
+        <span class="Identifier">this</span>.val = val;
+        <span class="Identifier">this</span>.col = col;
+    <span class="Function">}</span>
+
+    shortType() <span class="Function">{</span>
+        <span class="Identifier">let</span> abbr = <span class="Function">{</span>
+            <span class="String">&quot;string&quot;</span> : <span class="String">&quot;s&quot;</span>,
+            <span class="String">&quot;bool&quot;</span> : <span class="String">&quot;b&quot;</span>,
+            <span class="String">&quot;number&quot;</span> : <span class="String">&quot;n&quot;</span>,
+            <span class="String">&quot;quotation&quot;</span> : <span class="String">&quot;q&quot;</span>
+        <span class="Function">}</span>;
+
+        <span class="Statement">if</span> (<span class="Identifier">this</span>.type <span class="Statement">in</span> abbr) <span class="Function">{</span><span class="Statement">return</span> abbr<span class="Function">[</span><span class="Identifier">this</span>.type<span class="Function">]}</span>;
+        <span class="Statement">return</span> <span class="Identifier">this</span>.type;
+    <span class="Function">}</span>
+
+    toString() <span class="Function">{</span>
+        <span class="Statement">if</span> (<span class="Identifier">this</span>.type == <span class="String">&quot;quotation&quot;</span>) <span class="Function">{</span>
+            <span class="Statement">return</span> <span class="String">&quot;q&quot;</span> + <span class="Identifier">this</span>.col;
+
+        <span class="Function">}</span>
+        <span class="Statement">return</span> <span class="Identifier">this</span>.shortType() + <span class="String">&quot;:&quot;</span> + <span class="Identifier">this</span>.val;
+    <span class="Function">}</span>
+<span class="Function">}</span>
+
+
+<span class="Identifier">let</span> runtimeError = <span class="Function">function</span>(msg) <span class="Function">{</span>
+    <span class="Statement">return</span> <span class="String">&quot;runtimeError: &quot;</span> + msg;
+<span class="Function">}</span>
+
+
+<span class="Identifier">let</span> execute = <span class="Function">function</span>(prog, outputCallback, in_words, in_stack, in_indent) <span class="Function">{</span>
+    <span class="Comment">// The caller can pass in a stack and a dictionary context.</span>
+    <span class="Comment">// They are used in quotation invocation.</span>
+    <span class="Identifier">let</span> stack = in_stack || <span class="Function">[]</span>;
+    <span class="Identifier">let</span> indent = in_indent || 0;
+
+    <span class="Identifier">let</span> pop = () =&gt; <span class="Function">{</span>
+        <span class="Statement">if</span> (stack.length == 0) <span class="Function">{</span>
+            <span class="Statement">throw</span> runtimeError(<span class="String">&quot;Stack underflow!&quot;</span>);
+        <span class="Function">}</span>
+        <span class="Statement">return</span> stack.pop();
+    <span class="Function">}</span>
+
+    <span class="Identifier">let</span> push = (a) =&gt; <span class="Function">{</span>
+        stack.push(a);
+    <span class="Function">}</span>
+
+    <span class="Identifier">let</span> output = outputCallback || ((obj) =&gt; <span class="Function">{</span>
+        console.log(<span class="String">&quot;&gt;&gt; &quot;</span>, obj);
+    <span class="Function">}</span>)
+
+    <span class="Identifier">let</span> makenum = (v) =&gt; (<span class="Operator">new</span> Value(<span class="String">&quot;number&quot;</span>, v));
+    <span class="Identifier">let</span> makebool = (v) =&gt; (<span class="Operator">new</span> Value(<span class="String">&quot;bool&quot;</span>, v));
+    <span class="Identifier">let</span> type_assert = <span class="Function">function</span>(type, v) <span class="Function">{</span>
+        <span class="Statement">if</span> (v.type != type)<span class="Function">{</span><span class="Statement">throw</span> runtimeError(<span class="String">&quot;Got value of type &quot;</span> + v.type + <span class="String">&quot; insted of &quot;</span> + type + <span class="String">&quot;!&quot;</span>)<span class="Function">}</span>
+    <span class="Function">}</span>
+
+    <span class="Identifier">let</span> runQuotation = (src) =&gt; <span class="Function">{</span>
+        <span class="Identifier">let</span> new_prog = parse(src.val, <span class="Function">{</span><span class="String">&quot;offset&quot;</span> : src.col <span class="Function">}</span>);
+        <span class="Comment">//log(&quot;  src: '&quot; + src.val + &quot;'&quot;);</span>
+        <span class="Comment">//log(&quot;  compiled: &quot;, new_prog);</span>
+        execute(new_prog, outputCallback, words, stack, indent+1);
+    <span class="Function">}</span>
+
+    <span class="Identifier">let</span> map_list_index = (ind, the_list) =&gt; <span class="Function">{</span>
+        <span class="Identifier">let</span> new_ind = ind;
+        <span class="Statement">if</span> (ind &lt; 0) <span class="Function">{</span>
+            new_ind = the_list.length + ind;
+        <span class="Function">}</span>
+
+        <span class="Statement">if</span> (new_ind &gt;= the_list.length || new_ind &lt; 0) <span class="Function">{</span>
+            <span class="Statement">throw</span> runtimeError(<span class="String">&quot;Trying to read index &quot;</span> + ind + <span class="String">&quot; from list of size &quot;</span> + the_list.length + <span class="String">&quot;!&quot;</span>);
+        <span class="Function">}</span>
+
+        <span class="Statement">return</span> new_ind;
+    <span class="Function">}</span>;
+
+    <span class="Identifier">let</span> builtinWords = <span class="Function">{</span>
+        <span class="String">&quot;d&quot;</span> : () =&gt; <span class="Function">{</span>
+            <span class="Identifier">let</span> a = pop();
+            push(a);
+            push(a);<span class="Function">}</span>,
+        <span class="String">&quot;x&quot;</span> : () =&gt; <span class="Function">{</span>
+            pop();<span class="Function">}</span>,
+        <span class="String">&quot;.&quot;</span> : () =&gt; <span class="Function">{</span>output(pop().val)<span class="Function">}</span>,
+        <span class="String">&quot;s&quot;</span> : () =&gt; <span class="Function">{</span>
+            <span class="Identifier">let</span> a = pop();
+            <span class="Identifier">let</span> b = pop();
+            stack.push(a);
+            stack.push(b);
+        <span class="Function">}</span>,
+        <span class="String">&quot;r&quot;</span> : () =&gt; <span class="Function">{</span>
+            <span class="Identifier">let</span> c = pop();
+            <span class="Identifier">let</span> b = pop();
+            <span class="Identifier">let</span> a = pop();
+            push(c);
+            push(a);
+            push(b);
+        <span class="Function">}</span>,
+        <span class="String">&quot;+&quot;</span> : () =&gt; <span class="Function">{</span>
+            <span class="Identifier">let</span> a = pop();
+            <span class="Identifier">let</span> b = pop();
+            type_assert(<span class="String">&quot;number&quot;</span>, a);
+            type_assert(<span class="String">&quot;number&quot;</span>, b);
+            stack.push(makenum(b.val + a.val));<span class="Function">}</span>,
+        <span class="String">&quot;-&quot;</span> : () =&gt; <span class="Function">{</span>
+            <span class="Identifier">let</span> a = pop();
+            <span class="Identifier">let</span> b = pop();
+            type_assert(<span class="String">&quot;number&quot;</span>, a);
+            type_assert(<span class="String">&quot;number&quot;</span>, b);
+            stack.push(makenum(b.val - a.val));<span class="Function">}</span>,
+        <span class="String">&quot;/&quot;</span> : () =&gt; <span class="Function">{</span>
+            <span class="Identifier">let</span> a = pop();
+            <span class="Identifier">let</span> b = pop();
+            type_assert(<span class="String">&quot;number&quot;</span>, a);
+            type_assert(<span class="String">&quot;number&quot;</span>, b);
+            stack.push(makenum(b.val / a.val));<span class="Function">}</span>,
+        <span class="String">&quot;*&quot;</span> : () =&gt; <span class="Function">{</span>
+            <span class="Identifier">let</span> a = pop();
+            <span class="Identifier">let</span> b = pop();
+            type_assert(<span class="String">&quot;number&quot;</span>, a);
+            type_assert(<span class="String">&quot;number&quot;</span>, b);
+            push(makenum(a.val * b.val))<span class="Function">}</span>,
+        <span class="String">&quot;=&quot;</span> : () =&gt; <span class="Function">{</span>
+            <span class="Identifier">let</span> a = pop();
+            <span class="Identifier">let</span> b = pop();
+            <span class="Comment">// allow true == 1.0 --&gt; true</span>
+            stack.push(makebool(a.val == b.val));<span class="Function">}</span>,
+        <span class="String">&quot;&lt;&quot;</span> : () =&gt; <span class="Function">{</span>
+            <span class="Identifier">let</span> a = pop();
+            <span class="Identifier">let</span> b = pop();
+            stack.push(makebool(b.val &lt; a.val));<span class="Function">}</span>,
+        <span class="String">&quot;&gt;&quot;</span> : () =&gt; <span class="Function">{</span>
+            <span class="Identifier">let</span> a = pop();
+            <span class="Identifier">let</span> b = pop();
+            stack.push(makebool(b.val &gt; a.val));<span class="Function">}</span>,
+        <span class="String">&quot;!&quot;</span> : () =&gt; <span class="Function">{</span>
+            <span class="Identifier">let</span> a = pop();
+            <span class="Statement">if</span> (a.val) <span class="Function">{</span>
+                push(makebool(<span class="Constant">false</span>));
+            <span class="Function">}</span> <span class="Statement">else</span> <span class="Function">{</span>
+                push(makebool(<span class="Constant">true</span>));
+            <span class="Function">}}</span>,
+        <span class="String">&quot;?&quot;</span> : () =&gt; <span class="Function">{</span>
+            <span class="Identifier">let</span> else_quot = pop();
+            <span class="Identifier">let</span> then_quot = pop();
+            <span class="Identifier">let</span> if_quot = pop();
+            type_assert(<span class="String">&quot;quotation&quot;</span>, if_quot);
+            type_assert(<span class="String">&quot;quotation&quot;</span>, then_quot);
+            type_assert(<span class="String">&quot;quotation&quot;</span>, else_quot);
+            runQuotation(if_quot);
+            <span class="Identifier">let</span> result = pop();
+            type_assert(<span class="String">&quot;bool&quot;</span>, result);
+            <span class="Statement">if</span> (result.val) <span class="Function">{</span>
+                runQuotation(then_quot);
+            <span class="Function">}</span> <span class="Statement">else</span> <span class="Function">{</span>
+                runQuotation(else_quot);
+            <span class="Function">}</span>
+        <span class="Function">}</span>,
+        <span class="String">&quot;t&quot;</span> : () =&gt; <span class="Function">{</span>
+            <span class="Identifier">let</span> src = pop();
+            <span class="Identifier">let</span> amt = pop();
+            type_assert(<span class="String">&quot;number&quot;</span>, amt);
+            type_assert(<span class="String">&quot;quotation&quot;</span>, src);
+            <span class="Identifier">let</span> new_prog = parse(src.val, <span class="Function">{</span><span class="String">&quot;offset&quot;</span> : src.col <span class="Function">}</span>);
+            <span class="Identifier">let</span> times = amt.val;
+            <span class="Statement">while</span> (times &gt; 0) <span class="Function">{</span>
+                times--;
+                execute(new_prog, outputCallback, words, stack, indent+1);
+            <span class="Function">}</span>
+        <span class="Function">}</span>,
+        <span class="String">&quot;i&quot;</span> : () =&gt; <span class="Function">{</span>
+            <span class="Identifier">let</span> src = pop();
+            type_assert(<span class="String">&quot;quotation&quot;</span>, src);
+            runQuotation(src);
+        <span class="Function">}</span>,
+        <span class="String">&quot;å&quot;</span> : () =&gt; <span class="Function">{</span>
+            output(stack);
+        <span class="Function">}</span>,
+        <span class="String">&quot;g&quot;</span> : () =&gt; <span class="Function">{</span>
+            <span class="Identifier">let</span> index = pop();
+            <span class="Identifier">let</span> list = pop();
+            type_assert(<span class="String">&quot;number&quot;</span>, index);
+
+            <span class="Identifier">let</span> ind = Math.floor(index.val);
+
+            <span class="Statement">if</span> (list.type == <span class="String">&quot;quotation&quot;</span>) <span class="Function">{</span>
+                <span class="Identifier">let</span> list_tokens = parse(list.val, <span class="Function">{</span><span class="String">&quot;offset&quot;</span> : list.col <span class="Function">}</span>);
+                <span class="Identifier">let</span> string_list = list_tokens.map((token) =&gt; (<span class="Operator">new</span> Value(<span class="String">&quot;string&quot;</span>, token.value)));
+                <span class="Identifier">let</span> num_tokens = list_tokens.filter(
+                        (token) =&gt; (token <span class="Operator">instanceof</span> NumberLiteral));
+
+                ind = map_list_index(ind, list_tokens);
+
+                <span class="Comment">// if all tokens are numbers, return a number list</span>
+                <span class="Statement">if</span> (list_tokens.length == num_tokens.length &amp;&amp; list_tokens.length &gt; 0) <span class="Function">{</span>
+                    <span class="Identifier">let</span> number_list = list_tokens.map(
+                            (token) =&gt; (<span class="Operator">new</span> Value(<span class="String">&quot;number&quot;</span>, parseFloat(token.value))));
+                    push(number_list<span class="Function">[</span>ind<span class="Function">]</span>);
+                <span class="Function">}</span> <span class="Statement">else</span> <span class="Function">{</span>
+                    push(string_list<span class="Function">[</span>ind<span class="Function">]</span>);
+                <span class="Function">}</span>
+            <span class="Function">}</span> <span class="Statement">else</span> <span class="Function">{</span>
+                <span class="Statement">throw</span> runtimeError(<span class="String">&quot;Trying to get item &quot;</span>+ind+<span class="String">&quot; from value of type &quot;</span> + list.type);
+            <span class="Function">}</span>
+        <span class="Function">}</span>,
+    <span class="Function">}</span>;
+
+    <span class="Identifier">let</span> words = in_words || <span class="Function">{}</span>;
+    <span class="Type">Object</span>.assign(words, builtinWords);
+
+    <span class="Statement">for</span> (<span class="Identifier">let</span> token of prog) <span class="Function">{</span>
+        <span class="Comment">//log(&quot;--&gt; &quot;+inspect(token) + &quot;\nstack: &quot;, util.inspect(stack));</span>
+        <span class="Statement">if</span> (token <span class="Operator">instanceof</span> StringLiteral) <span class="Function">{</span>
+            stack.push(<span class="Operator">new</span> Value(<span class="String">&quot;string&quot;</span>, token.value, token.col));
+        <span class="Function">}</span> <span class="Statement">else</span> <span class="Statement">if</span> (token <span class="Operator">instanceof</span> Quotation) <span class="Function">{</span>
+            stack.push(<span class="Operator">new</span> Value(<span class="String">&quot;quotation&quot;</span>, token.value, token.col));
+        <span class="Function">}</span> <span class="Statement">else</span> <span class="Statement">if</span> (token <span class="Operator">instanceof</span> NumberLiteral) <span class="Function">{</span>
+            stack.push(<span class="Operator">new</span> Value(<span class="String">&quot;number&quot;</span>, parseFloat(token.value), token.col));
+        <span class="Function">}</span> <span class="Statement">else</span> <span class="Statement">if</span> (token <span class="Operator">instanceof</span> Word) <span class="Function">{</span>
+            <span class="Statement">if</span> (!(token.value <span class="Statement">in</span> words)) <span class="Function">{</span>
+                <span class="Statement">throw</span> runtimeError(<span class="String">&quot;Non-existent word at &quot;</span>+token.col +<span class="String">&quot;: &quot;</span> + util.inspect(token));
+            <span class="Function">}</span>
+
+            words<span class="Function">[</span>token.value<span class="Function">]</span>();
+
+        <span class="Function">}</span> <span class="Statement">else</span> <span class="Statement">if</span> (token <span class="Operator">instanceof</span> Definition) <span class="Function">{</span>
+            <span class="Statement">if</span> (token.name <span class="Statement">in</span> builtinWords) <span class="Function">{</span>
+                <span class="Statement">throw</span> runtimeError(<span class="String">&quot;Trying to redefine builtin word at &quot;</span>+token.col+<span class="String">&quot;: &quot;</span> + token.name);
+            <span class="Function">}</span>
+
+            words<span class="Function">[</span>token.name<span class="Function">]</span> = () =&gt; <span class="Function">{</span>
+                execute(token.tokens, outputCallback, words, stack);
+            <span class="Function">}</span>;
+
+        <span class="Function">}</span> <span class="Statement">else</span> <span class="Function">{</span>
+            <span class="Statement">throw</span> runtimeError(<span class="String">&quot;Invalid token at &quot;</span>+token.col+<span class="String">&quot;: &quot;</span> + util.inspect(token));
+        <span class="Function">}</span>
+
+        log(<span class="String">&quot; &quot;</span>.repeat(indent)+token.value+ <span class="String">&quot;</span><span class="Special">\t</span><span class="String">&quot;</span> + <span class="String">&quot;[&quot;</span> + stack + <span class="String">&quot;]&quot;</span>);
+    <span class="Function">}</span>
+
+    <span class="Statement">return</span> stack
+<span class="Function">}</span>
+
+<span class="Identifier">let</span> runTest = <span class="Function">function</span>(src) <span class="Function">{</span>
+    <span class="Comment">//log(&quot;\nsrc: &quot;, src);</span>
+    <span class="Identifier">let</span> prog = parse(src);
+    <span class="Comment">//log(&quot;prog: &quot;, prog);</span>
+    <span class="Comment">//log(&quot;result: &quot;, execute(prog));</span>
+<span class="Function">}</span>
+
+<span class="Identifier">let</span> run = <span class="Function">function</span>(src, outputCallback, words, stack) <span class="Function">{</span>
+    <span class="Statement">return</span> execute(parse(src), outputCallback, words, stack);
+<span class="Function">}</span>
+
+runTest(<span class="String">&quot; 13 2+.0.5 -10.1 *.&quot;</span>);
+runTest(<span class="String">&quot; </span><span class="Special">\&quot;</span><span class="String">hello </span><span class="Special">\\\&quot;</span><span class="String">world</span><span class="Special">\\\&quot;</span><span class="String"> :)</span><span class="Special">\&quot;</span><span class="String">&quot;</span>);
+runTest(<span class="String">&quot; :  Xxxpp;&quot;</span>);
+runTest(<span class="String">&quot;4 d *.&quot;</span>);
+runTest(<span class="String">&quot; (4 d *)i.&quot;</span>);
+runTest(<span class="String">&quot;5&quot;</span>);
+
+exports.parse = parse;
+exports.execute = execute;
+exports.run = run;
+
+</pre>
+</body>
+</html>
+<!-- vim: set foldmethod=manual : -->
