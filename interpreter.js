@@ -318,6 +318,19 @@ let execute = function(prog, outputCallback, in_words, in_stack, in_indent) {
         execute(new_prog, outputCallback, words, stack, indent+1);
     }
 
+    let map_list_index = (ind, the_list) => {
+        let new_ind = ind;
+        if (ind < 0) {
+            new_ind = the_list.length + ind;
+        }
+
+        if (new_ind >= the_list.length || new_ind < 0) {
+            throw runtimeError("Trying to read index " + ind + " from list of size " + the_list.length + "!");
+        }
+
+        return new_ind;
+    };
+
     let builtinWords = {
         "d" : () => {
             let a = pop();
@@ -358,6 +371,12 @@ let execute = function(prog, outputCallback, in_words, in_stack, in_indent) {
             type_assert("number", a);
             type_assert("number", b);
             stack.push(makenum(b.val / a.val));},
+        "%" : () => {
+            let a = pop();
+            let b = pop();
+            type_assert("number", a);
+            type_assert("number", b);
+            stack.push(makenum(b.val % a.val));},
         "*" : () => {
             let a = pop();
             let b = pop();
@@ -419,6 +438,33 @@ let execute = function(prog, outputCallback, in_words, in_stack, in_indent) {
         },
         "å" : () => {
             output(stack);
+        },
+        "g" : () => {
+            let index = pop();
+            let list = pop();
+            type_assert("number", index);
+
+            let ind = Math.floor(index.val);
+
+            if (list.type == "quotation") {
+                let list_tokens = parse(list.val, {"offset" : list.col });
+                let string_list = list_tokens.map((token) => (new Value("string", token.value)));
+                let num_tokens = list_tokens.filter(
+                        (token) => (token instanceof NumberLiteral));
+
+                ind = map_list_index(ind, list_tokens);
+
+                // if all tokens are numbers, return a number list
+                if (list_tokens.length == num_tokens.length && list_tokens.length > 0) {
+                    let number_list = list_tokens.map(
+                            (token) => (new Value("number", parseFloat(token.value))));
+                    push(number_list[ind]);
+                } else {
+                    push(string_list[ind]);
+                }
+            } else {
+                throw runtimeError("Trying to get item "+ind+" from value of type " + list.type);
+            }
         },
     };
 

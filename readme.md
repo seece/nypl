@@ -3,6 +3,8 @@
 
 A Forth-like, almost concatenative language with functional features, inspired by Factor, [Joy](http://www.kevinalbrecht.com/code/joy-mirror/j01tut.html), lisp, [IBNIZ](http://pelulamu.net/ibniz/) and Kx Systems' Q language.
 
+[Try Nypl online!](http://seece.github.io/nypl/)
+
 ## Examples
 
 To compute sum of two numbers, push the literals `1` and `2` on the stack and then call the `+` word to sum them. Finally `.` word is executed to print the top of the stack.
@@ -158,4 +160,23 @@ The times, or `t` operator can be used to repeat a quotation.
 Example: print `hi` five times:
 
     5("hi".)t
+
+## Lists
+
+    >(5 10 12)0g
+    >> 5
+
+    (1 2)(3 4)+
+    >>(1 2 3 4)
+
+    (d"jea"x)2g
+    >>"x"
+	
+## TODO
+
+- accessing values down the stack
+- lists
+- map, filter, fold
+
+
 
