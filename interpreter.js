@@ -371,6 +371,12 @@ let execute = function(prog, outputCallback, in_words, in_stack, in_indent) {
             type_assert("number", a);
             type_assert("number", b);
             stack.push(makenum(b.val / a.val));},
+        "%" : () => {
+            let a = pop();
+            let b = pop();
+            type_assert("number", a);
+            type_assert("number", b);
+            stack.push(makenum(b.val % a.val));},
         "*" : () => {
             let a = pop();
             let b = pop();
@@ -447,7 +453,6 @@ let execute = function(prog, outputCallback, in_words, in_stack, in_indent) {
                         (token) => (token instanceof NumberLiteral));
 
                 ind = map_list_index(ind, list_tokens);
-                log(ind);
 
                 // if all tokens are numbers, return a number list
                 if (list_tokens.length == num_tokens.length && list_tokens.length > 0) {
