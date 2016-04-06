@@ -161,3 +161,22 @@ Example: print `hi` five times:
 
     5("hi".)t
 
+## Lists
+
+    >(5 10 12)0g
+    >> 5
+
+    (1 2)(3 4)+
+    >>(1 2 3 4)
+
+    (d"jea"x)2g
+    >>"x"
+	
+## TODO
+
+- accessing values down the stack
+- lists
+- map, filter, fold
+
+
+
