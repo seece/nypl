@@ -33,6 +33,7 @@
 See the <a href="https://github.com/seece/nypl/blob/master/readme.md">The Language Spec</a> for usage.<br>
 <div id='words'></div>
 <label for="stackdebug">Show stack stages </label><input id="stackdebug" type="checkbox" checked="checked"></input>
+<br><label>Share: </label><input id='url' size="80" width="100%" type="text" onfocus="javascript:updateURL();"></input>
 <br>
 <br>
 <textarea id='output' rows="24" cols="90" readonly></textarea>
@@ -42,8 +43,18 @@ See the <a href="https://github.com/seece/nypl/blob/master/readme.md">The Langua
 <button id='clear' onclick="javascript:clearOutput();">Clear</button>
     <script>
     "use strict";
+    function getParameterByName(name, url) {
+    if (!url) url = window.location.href;
+    name = name.replace(/[\[\]]/g, "\\$&");
+    var regex = new RegExp("[?&]" + name + "(=([^&#]*)|&|#|$)", "i"),
+        results = regex.exec(url);
+    if (!results) return null;
+    if (!results[2]) return '';
+    return decodeURIComponent(results[2].replace(/\+/g, " "));
+}
     var entry = document.getElementById('entry');
     var out = document.getElementById('output');
+    var urlBox = document.getElementById('url');
     var wordBox = document.getElementById('words');
     var stackDebugCheckbox = document.getElementById('stackdebug');
     var words = {};
@@ -52,8 +63,27 @@ See the <a href="https://github.com/seece/nypl/blob/master/readme.md">The Langua
         wordBox.innerHTML = "Words: " + Object.keys(words).toString().replace(/,/g, " ");
     }
 
+    var source = getParameterByName("c");
+    if (source !== null) {
+        entry.value = source;
+    }
+    var showStages = getParameterByName("s");
+    if (showStages !== null) {
+        stackDebugCheckbox.checked = (showStages === "1");
+    }
+
+    var getURL = function (code, showStack) {
+        var s = location.protocol + '//' + location.host + location.pathname;
+        return s + "?c="+encodeURIComponent(code) + "&s=" + (showStack ? "1" : "0") ;
+    }
+
+    function updateURL() {
+        urlBox.value = getURL(entry.value, stackDebugCheckbox.checked);
+    }
+
     var run = function () {
         var src = entry.value;
+        updateURL();
         var add = (msg) => {
             out.value += msg + "\n";
             out.scrollTop = out.scrollHeight;
