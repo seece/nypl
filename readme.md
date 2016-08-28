@@ -185,7 +185,7 @@ Quotations also function as lists. Individual list items can be extracted with `
 
     g = get item ( list index -- item )
 
-The item is always returned as a quotation. To get the underlying value it needs to be evaluated with `.`:
+The item is always returned as a quotation. To get the underlying value it needs to be evaluated with `i`:
 
     > ("a" "b" "c") 1 g
     q6
@@ -205,7 +205,7 @@ In order to use the value it needs to be first evaluated with the `i` word.
 
     m = map ( list func -- new_list )
 
-Squaring every element of a list can be done with a quotation:
+Squaring every element of a list can be done with a map-operation:
 
     > (1 2 3) (id*) m
     1 4 9
