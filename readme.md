@@ -176,9 +176,10 @@ Example: print `hi` five times:
 
 
 ### Lists
-Quotations also function as lists. Individual list items can be extracted with `g`:
+Quotations also function as lists. Individual list items can be extracted with `g`.
 
     g = get item ( list index -- item )
+    c = cut string ( string separator -- list )
 
 The item is always returned as a quotation. To get the underlying value it needs to be evaluated with `.`:
 
@@ -187,9 +188,9 @@ The item is always returned as a quotation. To get the underlying value it needs
     ("a" "b" "c") 1 g i
     > b
 
-Strings can also behave as lists. TODO implement
+Strings can be split to quotations using the cut `c` word:
 
-    "hello" 3 g .
-    > o
+    "hello" "" c 1gi
+    > e
 
 

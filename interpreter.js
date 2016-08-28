@@ -484,6 +484,20 @@ let execute = function(prog, outputCallback, in_words, in_stack, in_indent) {
 
             push(new Value("quotation", item.lexeme, item.col));
         },
+        "c" : () => {
+            let separator = pop();
+            let str = pop();
+            type_assert("string", separator);
+            type_assert("string", str);
+            // log(separator);
+            // log(str);
+            let list = str.val.split(separator.val);
+            // log(list);
+            let stringified_list = (list.map((x) => {return '"' + x + '"';})).join(" ");
+            // log(stringified_list);
+            // TODO str.col is incorrect, should be actually position of "c"
+            push(new Value("quotation", stringified_list, str.col));
+        },
     };
 
     let words = in_words || {};
