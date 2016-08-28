@@ -25,14 +25,83 @@ if (typeof Object.create === 'function') {
 
 },{}],2:[function(require,module,exports){
 // shim for using process in browser
-
 var process = module.exports = {};
+
+// cached from whatever global is present so that test runners that stub it
+// don't break things.  But we need to wrap it in a try catch in case it is
+// wrapped in strict mode code which doesn't define any globals.  It's inside a
+// function because try/catches deoptimize in certain engines.
+
+var cachedSetTimeout;
+var cachedClearTimeout;
+
+(function () {
+    try {
+        cachedSetTimeout = setTimeout;
+    } catch (e) {
+        cachedSetTimeout = function () {
+            throw new Error('setTimeout is not defined');
+        }
+    }
+    try {
+        cachedClearTimeout = clearTimeout;
+    } catch (e) {
+        cachedClearTimeout = function () {
+            throw new Error('clearTimeout is not defined');
+        }
+    }
+} ())
+function runTimeout(fun) {
+    if (cachedSetTimeout === setTimeout) {
+        //normal enviroments in sane situations
+        return setTimeout(fun, 0);
+    }
+    try {
+        // when when somebody has screwed with setTimeout but no I.E. maddness
+        return cachedSetTimeout(fun, 0);
+    } catch(e){
+        try {
+            // When we are in I.E. but the script has been evaled so I.E. doesn't trust the global object when called normally
+            return cachedSetTimeout.call(null, fun, 0);
+        } catch(e){
+            // same as above but when it's a version of I.E. that must have the global object for 'this', hopfully our context correct otherwise it will throw a global error
+            return cachedSetTimeout.call(this, fun, 0);
+        }
+    }
+
+
+}
+function runClearTimeout(marker) {
+    if (cachedClearTimeout === clearTimeout) {
+        //normal enviroments in sane situations
+        return clearTimeout(marker);
+    }
+    try {
+        // when when somebody has screwed with setTimeout but no I.E. maddness
+        return cachedClearTimeout(marker);
+    } catch (e){
+        try {
+            // When we are in I.E. but the script has been evaled so I.E. doesn't  trust the global object when called normally
+            return cachedClearTimeout.call(null, marker);
+        } catch (e){
+            // same as above but when it's a version of I.E. that must have the global object for 'this', hopfully our context correct otherwise it will throw a global error.
+            // Some versions of I.E. have different rules for clearTimeout vs setTimeout
+            return cachedClearTimeout.call(this, marker);
+        }
+    }
+
+
+
+}
 var queue = [];
 var draining = false;
 var currentQueue;
 var queueIndex = -1;
 
 function cleanUpNextTick() {
+    if (!draining || !currentQueue) {
+        return;
+    }
     draining = false;
     if (currentQueue.length) {
         queue = currentQueue.concat(queue);
@@ -48,7 +117,7 @@ function drainQueue() {
     if (draining) {
         return;
     }
-    var timeout = setTimeout(cleanUpNextTick);
+    var timeout = runTimeout(cleanUpNextTick);
     draining = true;
 
     var len = queue.length;
@@ -65,7 +134,7 @@ function drainQueue() {
     }
     currentQueue = null;
     draining = false;
-    clearTimeout(timeout);
+    runClearTimeout(timeout);
 }
 
 process.nextTick = function (fun) {
@@ -77,7 +146,7 @@ process.nextTick = function (fun) {
     }
     queue.push(new Item(fun, args));
     if (queue.length === 1 && !draining) {
-        setTimeout(drainQueue, 0);
+        runTimeout(drainQueue);
     }
 };
 
@@ -722,14 +791,16 @@ class Token {
     constructor(line, column) {
         this.line = line;
         this.col = column;
-        this.value = ""; // basically the parse lexeme
+        this.text = ""; // inner text, e.g. string without quotes
+        this.lexeme = ""; // full token text, e.g. string with quotes
     }
 }
 
 class Word extends Token {
     constructor(column, word) {
         super(0, column);
-        this.value = word;
+        this.text = word;
+        this.lexeme = word;
     }
 }
 
@@ -739,34 +810,38 @@ class Definition extends Token{
         this.name = name;
         this.code = content;
         this.tokens = tokens;
-        this.value = content;
+        this.text = content;
+        this.lexeme = content;
     }
 }
 
 
 class Literal extends Token {
-    constructor(column, value) {
+    constructor(column, text) {
         super(0, column);
-        this.value = value;
+        this.text = text;
+        this.lexeme = text;
     }
 }
 
 class NumberLiteral extends Literal {
-    constructor(column, value) {
-        super(column, value);
+    constructor(column, text) {
+        super(column, text);
     }
 }
 
 class StringLiteral extends Literal {
-    constructor(column, value) {
-        super(column, value);
+    constructor(column, text) {
+        super(column, text);
+        this.lexeme = '"' + text + '"';
     }
 }
 
 class Quotation extends Literal {
-    constructor(column, col, value) {
-        super(column, value);
+    constructor(column, col, text) {
+        super(column, text);
         this.col = col
+        this.lexeme = '(' + text + ')';
     }
 }
 
@@ -925,7 +1000,7 @@ var parse = function(code, _context) {
                 throw scanningError("Unexpected EOF when reading a quotation.");
             }
 
-            if (c == '"') {quot += '"' + readString().value }
+            if (c == '"') {quot += '"' + readString().text }
             if (c == "(") {parenDepth++;}
             if (c == ")") {
                 parenDepth--;
@@ -988,9 +1063,23 @@ class Value {
     toString() {
         if (this.type == "quotation") {
             return "q" + this.col;
-
         }
         return this.shortType() + ":" + this.val;
+        //return this.val;
+    }
+
+    // Returns a string that returns the exact same value when evaluated.
+    toLiteral() {
+        if (this.type == "string") {
+            return '"' + this.val + '"';
+        } else if (this.type == "bool") {
+            return this.val ? "1" : "0";
+        } else if (this.type == "number") {
+            return this.val;
+        } else if (this.type == "quotation") {
+            return '(' + this.val + ')';
+        }
+        return this.val;
     }
 }
 
@@ -1024,7 +1113,7 @@ let execute = function(prog, outputCallback, in_words, in_stack, in_indent) {
     let makenum = (v) => (new Value("number", v));
     let makebool = (v) => (new Value("bool", v));
     let type_assert = function(type, v) {
-        if (v.type != type){throw runtimeError("Got value of type " + v.type + " insted of " + type + "!")}
+        if (v.type != type){throw runtimeError("Got value of type " + v.type + " instead of " + type + "!")}
     }
 
     let runQuotation = (src) => {
@@ -1159,28 +1248,103 @@ let execute = function(prog, outputCallback, in_words, in_stack, in_indent) {
             let index = pop();
             let list = pop();
             type_assert("number", index);
+            type_assert("quotation", list);
 
             let ind = Math.floor(index.val);
+            let list_tokens = parse(list.val, {"offset" : list.col });
 
-            if (list.type == "quotation") {
-                let list_tokens = parse(list.val, {"offset" : list.col });
-                let string_list = list_tokens.map((token) => (new Value("string", token.value)));
-                let num_tokens = list_tokens.filter(
-                        (token) => (token instanceof NumberLiteral));
-
-                ind = map_list_index(ind, list_tokens);
-
-                // if all tokens are numbers, return a number list
-                if (list_tokens.length == num_tokens.length && list_tokens.length > 0) {
-                    let number_list = list_tokens.map(
-                            (token) => (new Value("number", parseFloat(token.value))));
-                    push(number_list[ind]);
-                } else {
-                    push(string_list[ind]);
-                }
-            } else {
-                throw runtimeError("Trying to get item "+ind+" from value of type " + list.type);
+            if (ind < 0 || ind >= list_tokens.length) {
+                throw runtimeError("Index " + ind + " out of range.");
             }
+
+            // We extract an item from the list and return it wrapped in a
+            // quotation. If the programmer wants the underlying value the
+            // quotation can be just evaluated.
+
+            let item = list_tokens[ind];
+            //console.log(list);
+            //console.log(list_tokens);
+            //console.log("index", ind);
+            //console.log(item);
+
+            push(new Value("quotation", item.lexeme, item.col));
+        },
+        "c" : () => {
+            let separator = pop();
+            let str = pop();
+            type_assert("string", separator);
+            type_assert("string", str);
+            // log(separator);
+            // log(str);
+            let list = str.val.split(separator.val);
+            // log(list);
+            let stringified_list = (list.map((x) => {return '"' + x + '"';})).join(" ");
+            // log(stringified_list);
+            // TODO str.col is incorrect, should be actually position of "c"
+            push(new Value("quotation", stringified_list, str.col));
+        },
+        "m" : () => {
+            let func = pop();
+            let list = pop();
+            type_assert("quotation", func);
+            type_assert("quotation", list);
+
+            let list_tokens = parse(list.val, {"offset" : list.col });
+            let func_tokens = parse(func.val, {"offset" : func.col });
+
+            for (let i = 0; i < list_tokens.length; i++) {
+                // Read the array slot value from index i using the built-in
+                // word g, and push it up on the stack ready for the 'func'
+                // quotation to consume.
+                let token = list_tokens[i];
+                let new_prog = parse(i + "g", {"offset" : token.col });
+                push(list);
+                execute(new_prog, outputCallback, words, stack, indent);
+                execute(func_tokens, outputCallback, words, stack, indent+1);
+            }
+        },
+        "w" : () => {
+            let number_val = pop();
+            type_assert("number", number_val);
+            let count = number_val.val;
+
+            if (count < 0) {
+                throw runtimeError("Trying to read " + count + " values from the stack.");
+            }
+
+            let literals = [];
+
+            for (let i = 0; i < count; i++) {
+                let value = pop();
+                literals.push(value.toLiteral());
+            }
+
+            let literal_string = '(' + literals.join(" ") + ')';
+            // console.log("literal string: " + literal_string);
+
+            // Push the collected values to the stack as a quotation.
+
+            // TODO numberval_col is incorrect, should be position of w
+            let program = parse(literal_string, {"offset" : number_val.col });
+            execute(program, outputCallback, words, stack, indent);
+        },
+        "u" : () => {
+            let list = pop();
+            type_assert("quotation", list);
+            let list_tokens = parse(list.val, {"offset" : list.col });
+            let literals = [];
+
+            for (let token of list_tokens) {
+                literals.push(token.lexeme);
+            }
+
+            let literal_string = literals.join(" ");
+            console.log("unwrap literal string: " + literal_string);
+
+            // Push the collected values to the stack individually.
+            // TODO list.col is incorrect, should be position of w
+            let program = parse(literal_string, {"offset" : list.col });
+            execute(program, outputCallback, words, stack, indent);
         },
     };
 
@@ -1188,57 +1352,45 @@ let execute = function(prog, outputCallback, in_words, in_stack, in_indent) {
     Object.assign(words, builtinWords);
 
     for (let token of prog) {
+        log(" ".repeat(indent) + token.text+ "\t" + "[" + stack + "]");
+
         //log("--> "+inspect(token) + "\nstack: ", util.inspect(stack));
         if (token instanceof StringLiteral) {
-            stack.push(new Value("string", token.value, token.col));
+            stack.push(new Value("string", token.text, token.col));
         } else if (token instanceof Quotation) {
-            stack.push(new Value("quotation", token.value, token.col));
+            stack.push(new Value("quotation", token.text, token.col));
         } else if (token instanceof NumberLiteral) {
-            stack.push(new Value("number", parseFloat(token.value), token.col));
+            stack.push(new Value("number", parseFloat(token.text), token.col));
         } else if (token instanceof Word) {
-            if (!(token.value in words)) {
+            if (!(token.text in words)) {
                 throw runtimeError("Non-existent word at "+token.col +": " + util.inspect(token));
             }
 
-            words[token.value]();
+            words[token.text](stack);
 
         } else if (token instanceof Definition) {
             if (token.name in builtinWords) {
                 throw runtimeError("Trying to redefine builtin word at "+token.col+": " + token.name);
             }
 
-            words[token.name] = () => {
-                execute(token.tokens, outputCallback, words, stack);
+            // The stack needs to get passed in as an argument since the variable 'stack'
+            // would otherwise point to an object instance created on an earlier execute()
+            // invocation. This is the case when running inside REPL.
+            words[token.name] = (in_stack) => {
+                execute(token.tokens, outputCallback, words, in_stack);
             };
 
         } else {
             throw runtimeError("Invalid token at "+token.col+": " + util.inspect(token));
         }
-
-        log(" ".repeat(indent)+token.value+ "\t" + "[" + stack + "]");
     }
 
     return stack
 }
 
-let runTest = function(src) {
-    //log("\nsrc: ", src);
-    let prog = parse(src);
-    //log("prog: ", prog);
-    //log("result: ", execute(prog));
-}
-
 let run = function(src, outputCallback, logCallback, words, stack) {
-    log = logCallback || console.log;
     return execute(parse(src), outputCallback, words, stack);
 }
-
-runTest(" 13 2+.0.5 -10.1 *.");
-runTest(" \"hello \\\"world\\\" :)\"");
-runTest(" :  Xxxpp;");
-runTest("4 d *.");
-runTest(" (4 d *)i.");
-runTest("5");
 
 exports.parse = parse;
 exports.execute = execute;

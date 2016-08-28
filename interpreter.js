@@ -603,7 +603,6 @@ let execute = function(prog, outputCallback, in_words, in_stack, in_indent) {
     return stack
 }
 
-<<<<<<< HEAD
 let run = function(src, outputCallback, logCallback, words, stack) {
     return execute(parse(src), outputCallback, words, stack);
 }
