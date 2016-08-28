@@ -1,4 +1,4 @@
-# The Nypl Language Spec v0.1ses
+# The Nypl Language Guide v0.2
 *Designed for Simo™*
 
 A Forth-like, almost concatenative language with functional features, inspired by Factor, [Joy](http://www.kevinalbrecht.com/code/joy-mirror/j01tut.html), lisp, [IBNIZ](http://pelulamu.net/ibniz/) and Kx Systems' Q language.
@@ -117,6 +117,12 @@ Now the user defined word `E` can be used the following way:
 Whitespace can be used to separate immediates and words, but isn't always necessary.
 For example `1 2 + 3 *` and `1 2+3*` are equivalent.
 
+### Comments
+
+There is no special syntax for comments but one way to add annotations to code is to add string literals that are dropped off the stack immediately afterwards:
+
+    "This is kind of a comment."x
+
 ## Data types
 
 ### Real numbers
@@ -145,7 +151,7 @@ This example code pushes `3` on the stack, pushes the quotation `(d*)` on the st
     > 9
 
 ### Combinators
-Words that take in quotations as arguments and execute them are called combinators.
+Words that take in quotations (code) as inputs are called combinators.
 
 ## Flow control
 
@@ -167,4 +173,23 @@ The times, or `t` combinator can be used to repeat a quotation.
 Example: print `hi` five times:
 
     5("hi".)t
+
+
+### Lists
+Quotations also function as lists. Individual list items can be extracted with `g`:
+
+    g = get item ( list index -- item )
+
+The item is always returned as a quotation. To get the underlying value it needs to be evaluated with `.`:
+
+    ("a" "b" "c") 1 g
+    > q6
+    ("a" "b" "c") 1 g i
+    > b
+
+Strings can also behave as lists. TODO implement
+
+    "hello" 3 g .
+    > o
+
 
