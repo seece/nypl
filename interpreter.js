@@ -498,6 +498,69 @@ let execute = function(prog, outputCallback, in_words, in_stack, in_indent) {
             // TODO str.col is incorrect, should be actually position of "c"
             push(new Value("quotation", stringified_list, str.col));
         },
+        "m" : () => {
+            let func = pop();
+            let list = pop();
+            type_assert("quotation", func);
+            type_assert("quotation", list);
+
+            let list_tokens = parse(list.val, {"offset" : list.col });
+            let func_tokens = parse(func.val, {"offset" : func.col });
+
+            for (let i = 0; i < list_tokens.length; i++) {
+                // Read the array slot value from index i using the built-in
+                // word g, and push it up on the stack ready for the 'func'
+                // quotation to consume.
+                let token = list_tokens[i];
+                let new_prog = parse(i + "g", {"offset" : token.col });
+                push(list);
+                execute(new_prog, outputCallback, words, stack, indent);
+                execute(func_tokens, outputCallback, words, stack, indent+1);
+            }
+        },
+        "w" : () => {
+            let number_val = pop();
+            type_assert("number", number_val);
+            let count = number_val.val;
+
+            if (count < 0) {
+                throw runtimeError("Trying to read " + count + " values from the stack.");
+            }
+
+            let literals = [];
+
+            for (let i = 0; i < count; i++) {
+                let value = pop();
+                literals.push(value.toLiteral());
+            }
+
+            let literal_string = '(' + literals.join(" ") + ')';
+            // console.log("literal string: " + literal_string);
+
+            // Push the collected values to the stack as a quotation.
+
+            // TODO numberval_col is incorrect, should be position of w
+            let program = parse(literal_string, {"offset" : number_val.col });
+            execute(program, outputCallback, words, stack, indent);
+        },
+        "u" : () => {
+            let list = pop();
+            type_assert("quotation", list);
+            let list_tokens = parse(list.val, {"offset" : list.col });
+            let literals = [];
+
+            for (let token of list_tokens) {
+                literals.push(token.lexeme);
+            }
+
+            let literal_string = literals.join(" ");
+            console.log("unwrap literal string: " + literal_string);
+
+            // Push the collected values to the stack individually.
+            // TODO list.col is incorrect, should be position of w
+            let program = parse(literal_string, {"offset" : list.col });
+            execute(program, outputCallback, words, stack, indent);
+        },
     };
 
     let words = in_words || {};
