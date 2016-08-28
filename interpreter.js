@@ -274,7 +274,8 @@ class Value {
             return "q" + this.col;
 
         }
-        return this.shortType() + ":" + this.val;
+        //return this.shortType() + ":" + this.val;
+        return this.val;
     }
 }
 
@@ -308,7 +309,7 @@ let execute = function(prog, outputCallback, in_words, in_stack, in_indent) {
     let makenum = (v) => (new Value("number", v));
     let makebool = (v) => (new Value("bool", v));
     let type_assert = function(type, v) {
-        if (v.type != type){throw runtimeError("Got value of type " + v.type + " insted of " + type + "!")}
+        if (v.type != type){throw runtimeError("Got value of type " + v.type + " instead of " + type + "!")}
     }
 
     let runQuotation = (src) => {
@@ -463,7 +464,7 @@ let execute = function(prog, outputCallback, in_words, in_stack, in_indent) {
                     push(string_list[ind]);
                 }
             } else {
-                throw runtimeError("Trying to get item "+ind+" from value of type " + list.type);
+                throw runtimeError("Trying to get item " + ind + " from value of type " + list.type);
             }
         },
     };
@@ -472,6 +473,8 @@ let execute = function(prog, outputCallback, in_words, in_stack, in_indent) {
     Object.assign(words, builtinWords);
 
     for (let token of prog) {
+        log(" ".repeat(indent) + token.value+ "\t" + "[" + stack + "]");
+
         //log("--> "+inspect(token) + "\nstack: ", util.inspect(stack));
         if (token instanceof StringLiteral) {
             stack.push(new Value("string", token.value, token.col));
@@ -484,44 +487,31 @@ let execute = function(prog, outputCallback, in_words, in_stack, in_indent) {
                 throw runtimeError("Non-existent word at "+token.col +": " + util.inspect(token));
             }
 
-            words[token.value]();
+            words[token.value](stack);
 
         } else if (token instanceof Definition) {
             if (token.name in builtinWords) {
                 throw runtimeError("Trying to redefine builtin word at "+token.col+": " + token.name);
             }
 
-            words[token.name] = () => {
-                execute(token.tokens, outputCallback, words, stack);
+            // The stack needs to get passed in as an argument since the variable 'stack'
+            // would otherwise point to an object instance created on an earlier execute()
+            // invocation. This is the case when running inside REPL.
+            words[token.name] = (in_stack) => {
+                execute(token.tokens, outputCallback, words, in_stack);
             };
 
         } else {
             throw runtimeError("Invalid token at "+token.col+": " + util.inspect(token));
         }
-
-        log(" ".repeat(indent)+token.value+ "\t" + "[" + stack + "]");
     }
 
     return stack
 }
 
-let runTest = function(src) {
-    //log("\nsrc: ", src);
-    let prog = parse(src);
-    //log("prog: ", prog);
-    //log("result: ", execute(prog));
-}
-
 let run = function(src, outputCallback, words, stack) {
     return execute(parse(src), outputCallback, words, stack);
 }
-
-runTest(" 13 2+.0.5 -10.1 *.");
-runTest(" \"hello \\\"world\\\" :)\"");
-runTest(" :  Xxxpp;");
-runTest("4 d *.");
-runTest(" (4 d *)i.");
-runTest("5");
 
 exports.parse = parse;
 exports.execute = execute;

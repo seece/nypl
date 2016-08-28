@@ -100,10 +100,17 @@ Where `input` is the stack state before calling the word and `output` is the end
 User defined words must be a single capital letter. All builtin words are one character long, too.
 
 Checks if given number is even.
-Define word `E`, divide given number, swap, drop, push 0, check for equality
+Define word `E` as the following: get the result of `n mod 2`, check if 0:
 
     # (n -- is_even)
-    :E%sx0=;
+    :E2%0=;
+
+Now the user defined word `E` can be used the following way:
+
+    5E
+    > b:false
+    6E
+    > b:true
 
 ### Whitespace
 
@@ -153,7 +160,7 @@ The following code returns 6, since 4 > 3. Otherwise it would've returned 0.
 
 ### Looping
 
-The times, or `t` operator can be used to repeat a quotation.
+The times, or `t` combinator can be used to repeat a quotation.
 
     t   = times (a b -- ) quotation b gets repeated 'a' times
 
