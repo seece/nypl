@@ -1,4 +1,4 @@
-# The Nypl Language Spec v0.1ses
+# The Nypl Language Guide v0.2
 *Designed for Simo™*
 
 A Forth-like, almost concatenative language with functional features, inspired by Factor, [Joy](http://www.kevinalbrecht.com/code/joy-mirror/j01tut.html), lisp, [IBNIZ](http://pelulamu.net/ibniz/) and Kx Systems' Q language.
@@ -9,13 +9,13 @@ A Forth-like, almost concatenative language with functional features, inspired b
 
 To compute sum of two numbers, push the literals `1` and `2` on the stack and then call the `+` word to sum them. Finally `.` word is executed to print the top of the stack.
 
-    1 2 + .
-    > 3
+    > 1 2 + .
+    3
 
 To calculate the product of two sums 5+6 and 1 + 2:
 
-    1 2 + 5 6 + * .
-    > 90
+    > 1 2 + 5 6 + * .
+    90
 
 
 A terrible tail recursion for loop that prints the numbers 2, 1, 0:
@@ -63,6 +63,11 @@ so it's square(x) -> x^2. `;` ends the word definition
 
     :Sd*;
 
+I can be then called like thw following:
+
+    > 5 S
+    25
+
 ## Stack manipulation
 
 ### Stack effect declarations
@@ -100,15 +105,28 @@ Where `input` is the stack state before calling the word and `output` is the end
 User defined words must be a single capital letter. All builtin words are one character long, too.
 
 Checks if given number is even.
-Define word `E`, divide given number, swap, drop, push 0, check for equality
+Define word `E` as the following: get the result of `n mod 2`, check if 0:
 
-    # (n -- is_even)
-    :E%sx0=;
+    "(n -- is_even)"x
+    :E2%0=;
+
+Now the user defined word `E` can be used the following way:
+
+    > 5E
+    b:false
+    > 6E
+    b:true
 
 ### Whitespace
 
 Whitespace can be used to separate immediates and words, but isn't always necessary.
 For example `1 2 + 3 *` and `1 2+3*` are equivalent.
+
+### Comments
+
+There is no special syntax for comments but one way to add annotations to code is to add string literals that are dropped off the stack immediately afterwards:
+
+    "This is kind of a comment."x
 
 ## Data types
 
@@ -124,8 +142,8 @@ A number of value `0` is considered falsy and `1` true.
 Strings are written in double quotes. Supported escape characters are the following: `\"`, `\n`, `\t`.
 
 
-    "oot aika \"ihana\"".
-    > oot aika "ihana"
+    > "oot aika \"ihana\"".
+    oot aika "ihana"
 
 
 ### Inline code
@@ -134,11 +152,11 @@ Strings are written in double quotes. Supported escape characters are the follow
 
 This example code pushes `3` on the stack, pushes the quotation `(d*)` on the stack, pops the quotation and executes it via the `i` word and then prints the result.
 
-    3(d*)i.
-    > 9
+    > 3 (d*) i.
+    9
 
 ### Combinators
-Words that take in quotations as arguments and execute them are called combinators.
+Words that take in quotations (code) as inputs are called combinators.
 
 ## Flow control
 
@@ -148,18 +166,63 @@ The `?` combinator can be used for conditional execution of code.
 
 The following code returns 6, since 4 > 3. Otherwise it would've returned 0.
 
-    4(d3>)(2+)(x0)?
+    > 4(d3>)(2+)(x0)?
 
 
 ### Looping
 
-The times, or `t` operator can be used to repeat a quotation.
+The times, or `t` combinator can be used to repeat a quotation.
 
     t   = times (a b -- ) quotation b gets repeated 'a' times
 
 Example: print `hi` five times:
 
-    5("hi".)t
+    > 5("hi".)t
+
+
+### Lists
+Quotations also function as lists. Individual list items can be extracted with `g`.
+
+    g = get item ( list index -- item )
+
+The item is always returned as a quotation. To get the underlying value it needs to be evaluated with `.`:
+
+    > ("a" "b" "c") 1 g
+    q6
+    > ("a" "b" "c") 1 g i
+    b
+
+Strings can be split to quotations using the cut `c` word:
+
+    c = cut string ( string separator -- list )
+
+    > "hello" "" c 1gi
+    e
+
+Map applies a quotation to each element of a list.
+The `func` quotation receives a single value from the list.
+In order to use the value it needs to be first evaluated with the `i` word.
+
+    m = map ( list func -- new_list )
+
+Squaring every element of a list can be done with a quotation:
+
+    > (1 2 3) (id*) m
+    1 4 9
+
+You can also pick N elements from the stack and wrap them into a quotation with the `w` word:
+
+    w = wrap ( N -- list_with_N_elements )
+
+    >"first" "second" "fourth?" 3 w
+    q27
+
+A list with N elements can be unwrapped and pushed back to the stack with the `u` word:
+
+    u = unwrap ( list --- item_1 item_2 ... item_N )
+
+    > (1 2 3) u
+    1 2 3
 
 ## Lists
 
