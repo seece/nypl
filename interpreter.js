@@ -310,6 +310,7 @@ class Value {
             "number" : "n",
             "quotation" : "q",
             "list" : "l",
+            "object" : "o",
         };
 
         if (this.type in abbr) {return abbr[this.type]};
@@ -611,8 +612,65 @@ let execute = function(prog, outputCallback, in_words, in_stack, in_indent) {
                     return null;
                 }
 
-                // TODO handle value.type == "quotation"
+                if (value.type == "list") {
+                    return value.val.map((x) => {
+                        //function(prog, outputCallback, in_words, in_stack, in_indent)
+                        let temp_stack = []
+                        execute([x], outputCallback, in_words, temp_stack, 0);
+                        if (temp_stack.length != 1) {
+                            throw "List item output should have only one value."
+                        }
+                        return to_native(temp_stack[0]);
+                    });
+                }
+
+                if (value.type == "quotation") {
+                    return function () {
+                        for(var i = 0; i < arguments.length; i++) {
+                            stack.push(from_native(arguments[i]));
+                        }
+                        log("quotation call args: ", arguments);
+                        runQuotation(value);
+                        let output = stack.pop();
+                        log("output: ", output);
+                        return to_native(output);
+                    }
+
+                }
+
                 return value.val;
+            }
+
+            let from_native = function(in_value) {
+                let types = {
+                    "get": function(prop) {
+                        return Object.prototype.toString.call(prop);
+                    },
+                    "object": "[object Object]",
+                    "array": "[object Array]",
+                    "string": "[object String]",
+                    "boolean": "[object Boolean]",
+                    "number": "[object Number]"
+                }
+
+                log("type: " + types.get(in_value));
+
+                switch (types.get(in_value)) {
+                    case types.object:
+                        return new Value("object", in_value, -1);
+                    case types.array:
+                        let boxed = in_value.map(from_native);
+                        return new Value("list", boxed, -1);
+                    case types.string:
+                        return new Value("string", in_value, -1);
+                    case types.boolean:
+                        return new Value("number", in_value ? 1 : 0, -1);
+                    case types.number:
+                        return new Value("number", in_value, -1);
+                }
+
+                throw "Unsupported native object: " + types.get(in_value)
+                return null;
             }
 
             let code = pop();
@@ -629,12 +687,14 @@ let execute = function(prog, outputCallback, in_words, in_stack, in_indent) {
             log("args: ", args);
 
             // TODO handle 'this' somehow
-            let ret = func.apply(null, func, args);
+            debugger;
+            let ret = func.apply(null, args);
             log("got from native call: " + ret);
+            push(from_native(ret));
         }
     };
 
-    let words = in_words || {};
+    let words = in_words || {}; // FIXME don't use OR here
     Object.assign(words, builtinWords);
 
     for (let token of prog) {
