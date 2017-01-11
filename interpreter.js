@@ -60,6 +60,15 @@ class Quotation extends Literal {
     }
 }
 
+class List extends Literal {
+    constructor(column, col, text, elements) {
+        super(column, text);
+        this.col = col;
+        this.elements = elements;
+        this.lexeme = '[' + text + ']';
+    }
+}
+
 var log = console.log;
 
 var parse = function(code, _context) {
@@ -71,8 +80,8 @@ var parse = function(code, _context) {
         return context.offset + pos-1;
     }
 
-    let scanningError = (msg) => {
-        return "ScanningError at "+(getColumn())+": " + msg;
+    let parsingError = (msg) => {
+        return "Parsing error at "+(getColumn())+": " + msg;
     }
 
     let peek = () => {
@@ -164,7 +173,7 @@ var parse = function(code, _context) {
                 if (esc in escapes) {
                     str += escapes[esc];
                 } else {
-                    throw scanningError("Invalid escape char: " + esc);
+                    throw parsingError("Invalid escape char: " + esc);
                 }
             } else if (c == "\"") {
                 break;
@@ -191,7 +200,7 @@ var parse = function(code, _context) {
         let usercode = ""
         while (c != ";") {
             if (peek() == EOF) {
-                throw scanningError("Unexpected EOF when reading a definition.");
+                throw parsingError("Unexpected EOF when reading a definition.");
             }
             usercode += c;
             c = read();
@@ -212,7 +221,7 @@ var parse = function(code, _context) {
 
         while (parenDepth > 0) {
             if (c == EOF) {
-                throw scanningError("Unexpected EOF when reading a quotation.");
+                throw parsingError("Unexpected EOF when reading a quotation.");
             }
 
             if (c == '"') {quot += '"' + readString().text }
@@ -231,6 +240,35 @@ var parse = function(code, _context) {
         return new Quotation(getColumn(), col, quot);
     }
 
+    let readList = () => {
+        let col = getColumn();
+        let innerCode = "";
+        let parenDepth = 1;
+
+        let c = read();
+
+        while (parenDepth > 0) {
+            if (c == EOF) {
+                throw parsingError("Unexpected EOF when reading a list.");
+            }
+
+            if (c == '"') {innerCode += '"' + readString().text }
+            if (c == "[") {parenDepth++;}
+            if (c == "]") {
+                parenDepth--;
+                if (parenDepth == 0) {
+                    break;
+                }
+            }
+
+            innerCode += c;
+            c = read();
+        }
+
+        let elementTokens = parse(innerCode, _context);
+        return new List(getColumn(), col, innerCode, elementTokens);
+    }
+
     let tokens = [];
 
     while (c != EOF) {
@@ -246,8 +284,10 @@ var parse = function(code, _context) {
                 tokens.push(readDefinition());
             } else if (c == '(') {
                 tokens.push(readQuotation());
+            } else if (c == '[') {
+                tokens.push(readList());
             } else {
-                throw scanningError("Invalid character '" + c + "' at " + (getColumn()));
+                throw parsingError("Invalid character '" + c + "' at " + (getColumn()));
             }
         }
         c = read();
@@ -268,7 +308,8 @@ class Value {
             "string" : "s",
             "bool" : "b",
             "number" : "n",
-            "quotation" : "q"
+            "quotation" : "q",
+            "list" : "l",
         };
 
         if (this.type in abbr) {return abbr[this.type]};
@@ -279,8 +320,9 @@ class Value {
         if (this.type == "quotation") {
             return "q" + this.col;
         }
-        return this.shortType() + ":" + this.val;
-        //return this.val;
+
+        //return this.shortType() + ":" + this.val;
+        return this.toLiteral();
     }
 
     // Returns a string that returns the exact same value when evaluated.
@@ -293,6 +335,8 @@ class Value {
             return this.val;
         } else if (this.type == "quotation") {
             return '(' + this.val + ')';
+        } else if (this.type == "list") {
+            return '[' + (this.val.map((x) => x.lexeme)).join(" ") + ']'
         }
         return this.val;
     }
@@ -302,7 +346,6 @@ class Value {
 let runtimeError = function(msg) {
     return "runtimeError: " + msg;
 }
-
 
 let execute = function(prog, outputCallback, in_words, in_stack, in_indent) {
     // The caller can pass in a stack and a dictionary context.
@@ -561,6 +604,34 @@ let execute = function(prog, outputCallback, in_words, in_stack, in_indent) {
             let program = parse(literal_string, {"offset" : list.col });
             execute(program, outputCallback, words, stack, indent);
         },
+        "e" : () => {
+            let to_native = function(value) {
+                if (!(value instanceof Value)) {
+                    throw "invalid type to to_native: " + typeof(value)
+                    return null;
+                }
+
+                // TODO handle value.type == "quotation"
+                return value.val;
+            }
+
+            let code = pop();
+            type_assert("string", code);
+            let func = eval(code.val);
+            let args = [];
+            for (let i=0 ; i<func.length ; i++) {
+                let item = pop();
+                let val = to_native(item);
+                args.push(val);
+            }
+
+            log("func: ", func);
+            log("args: ", args);
+
+            // TODO handle 'this' somehow
+            let ret = func.apply(null, func, args);
+            log("got from native call: " + ret);
+        }
     };
 
     let words = in_words || {};
@@ -595,6 +666,8 @@ let execute = function(prog, outputCallback, in_words, in_stack, in_indent) {
                 execute(token.tokens, outputCallback, words, in_stack);
             };
 
+        } else if (token instanceof List) {
+            stack.push(new Value("list", token.elements, token.col));
         } else {
             throw runtimeError("Invalid token at "+token.col+": " + util.inspect(token));
         }
