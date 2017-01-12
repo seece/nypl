@@ -114,7 +114,7 @@ var parse = function(code, _context) {
     };
 
     let isBuiltin = (s) => {
-        return /[a-zäöå\.+-/*%!?=<>t]/.test(s);
+        return /[a-zäöå\.+-/*%!?=<>_]/.test(s);
     }
 
     let isUserword = (s) => {
@@ -341,20 +341,20 @@ class Value {
         } else if (this.type == "bool") {
             return this.val ? "1" : "0";
         } else if (this.type == "number") {
-            return this.val;
+            return String(this.val);
         } else if (this.type == "quotation") {
             return '(' + this.val + ')';
         } else if (this.type == "list") {
-            return '[' + (this.val.map((x) => x.lexeme)).join(" ") + ']'
+            //return '[' + (this.val.map((x) => x.lexeme)).join(" ") + ']'
+            return '[' + this.val.map((x) => x.toLiteral()).join(" ") + ']'
         }
-        return this.val;
+        return String(this.val);
     }
 
     clone() {
         let value = this.val;
         if (this.type == "list") {
-            // Clone the array. The tokens are immutable so sharing references
-            // to them should be fine.
+            // FIXME this is only a shallow copy if we have js objects in the list
             value = this.val.slice();
         }
 
@@ -364,6 +364,7 @@ class Value {
 
 
 let runtimeError = function(msg) {
+    console.trace(msg);
     return "runtimeError: " + msg;
 }
 
@@ -391,7 +392,7 @@ let execute = function(prog, outputCallback, in_words, in_stack, in_indent) {
     let makenum = (v) => (new Value("number", v));
     let makebool = (v) => (new Value("bool", v));
     let type_assert = function(type, v) {
-        if (v.type != type){throw runtimeError("Got value of type " + v.type + " instead of " + type + "!")}
+        if (v.type != type){throw runtimeError("Got value of type " + v.type + " instead of " + type + ": " + v)}
     }
 
     let runQuotation = (src) => {
@@ -544,10 +545,7 @@ let execute = function(prog, outputCallback, in_words, in_stack, in_indent) {
                 throw runtimeError("Index " + ind + " out of range.");
             }
 
-            const token = list.val[ind];
-
-            push(list);
-            execute([token], outputCallback, words, stack, indent);
+            push(list.val[ind].clone());
         },
         // split TODO remove?
         "c" : () => {
@@ -559,10 +557,10 @@ let execute = function(prog, outputCallback, in_words, in_stack, in_indent) {
             // log(str);
             let list = str.val.split(separator.val);
             // log(list);
-            let stringified_list = (list.map((x) => {return '"' + x + '"';})).join(" ");
+            let stringified_list = (list.map((x) => new Value("string", x, str.col))).join(" ");
             // log(stringified_list);
             // TODO str.col is incorrect, should be actually position of "c"
-            push(new Value("quotation", stringified_list, str.col));
+            push(new Value("list", stringified_list, str.col));
         },
         // map
         "m" : () => {
@@ -610,8 +608,8 @@ let execute = function(prog, outputCallback, in_words, in_stack, in_indent) {
             let program = parse(literal_string, {"offset" : number_val.col });
             execute(program, outputCallback, words, stack, indent);
         },
-        "u" : () => {
-            let list = pop();
+        "u" : (stak) => {
+            let list = stak.pop();
             type_assert("quotation", list);
             let list_tokens = parse(list.val, {"offset" : list.col });
             let literals = [];
@@ -629,7 +627,7 @@ let execute = function(prog, outputCallback, in_words, in_stack, in_indent) {
             execute(program, outputCallback, words, stack, indent);
         },
         // execute js code
-        "e" : () => {
+        "_" : (stak) => {
             let to_native = function(value) {
                 if (!(value instanceof Value)) {
                     throw "invalid type to to_native: " + typeof(value)
@@ -637,15 +635,7 @@ let execute = function(prog, outputCallback, in_words, in_stack, in_indent) {
                 }
 
                 if (value.type == "list") {
-                    return value.val.map((x) => {
-                        //function(prog, outputCallback, in_words, in_stack, in_indent)
-                        let temp_stack = []
-                        execute([x], outputCallback, in_words, temp_stack, 0);
-                        if (temp_stack.length != 1) {
-                            throw "List item output should have only one value."
-                        }
-                        return to_native(temp_stack[0]);
-                    });
+                    return value.val.map(to_native);
                 }
 
                 if (value.type == "quotation") {
@@ -655,7 +645,7 @@ let execute = function(prog, outputCallback, in_words, in_stack, in_indent) {
                         }
                         log("quotation call args: ", arguments);
                         runQuotation(value);
-                        let output = stack.pop();
+                        let output = stak.pop();
                         log("output: ", output);
                         return to_native(output);
                     }
@@ -666,7 +656,7 @@ let execute = function(prog, outputCallback, in_words, in_stack, in_indent) {
             }
 
             let from_native = function(in_value) {
-                let types = {
+                const types = {
                     "get": function(prop) {
                         return Object.prototype.toString.call(prop);
                     },
@@ -697,21 +687,20 @@ let execute = function(prog, outputCallback, in_words, in_stack, in_indent) {
                 return null;
             }
 
-            let code = pop();
+            const code = stak.pop();
             type_assert("string", code);
-            let func = eval(code.val);
-            let args = [];
+            const this_arg = stak.pop();
+
+            const func = eval(code.val);
+            const args = [];
             for (let i=0 ; i<func.length ; i++) {
-                let item = pop();
-                let val = to_native(item);
-                args.push(val);
+                args.push(to_native(stak.pop()));
             }
 
             // log("func: ", func);
             // log("args: ", args);
 
-            // TODO handle 'this' somehow
-            let ret = func.apply(null, args);
+            let ret = func.apply(to_native(this_arg), args);
             log("got from native call: " + ret);
             push(from_native(ret));
         }
@@ -745,12 +734,22 @@ let execute = function(prog, outputCallback, in_words, in_stack, in_indent) {
             // The stack needs to get passed in as an argument since the variable 'stack'
             // would otherwise point to an object instance created on an earlier execute()
             // invocation. This is the case when running inside REPL.
+            // Also, list evaluation messes up the closure.
             words[token.name] = (in_stack) => {
                 execute(token.tokens, outputCallback, words, in_stack);
             };
 
         } else if (token instanceof List) {
-            stack.push(new Value("list", token.elements, token.col));
+            const elementValues = [];
+            for (const i in token.elements) {
+                const temp_stack = []
+                //log("elems: ", token.elements[i]);
+                execute([token.elements[i]], outputCallback, words, temp_stack);
+                // Lists are allowed only contain single literals so there should be a single value.
+                elementValues.push(temp_stack[0]);
+                //log("first: ", temp_stack[0]);
+            }
+            stack.push(new Value("list", elementValues, token.col));
         } else {
             throw runtimeError("Invalid token at "+token.col+": " + util.inspect(token));
         }
