@@ -241,7 +241,7 @@ var parse = function(code, _context) {
     }
 
     let readList = () => {
-        let col = getColumn();
+        const col = getColumn();
         let innerCode = "";
         let parenDepth = 1;
 
@@ -265,7 +265,15 @@ var parse = function(code, _context) {
             c = read();
         }
 
-        let elementTokens = parse(innerCode, _context);
+        const elementTokens = parse(innerCode, _context);
+        const invalid = elementTokens.filter((t) => t instanceof Word || t instanceof Definition);
+        for (var i in invalid) {
+            const t = invalid[i];
+            log("Invalid list token '" + t.lexeme + "' at column " + t.col + ".");
+        }
+        if (invalid.length > 0) {
+            throw parsingError("Lists must contain only literals, found invalid token '" + invalid[0].lexeme + "'");
+        }
         return new List(getColumn(), col, innerCode, elementTokens);
     }
 
@@ -304,7 +312,7 @@ class Value {
     }
 
     shortType() {
-        let abbr = {
+        const abbr = {
             "string" : "s",
             "bool" : "b",
             "number" : "n",
@@ -340,6 +348,17 @@ class Value {
             return '[' + (this.val.map((x) => x.lexeme)).join(" ") + ']'
         }
         return this.val;
+    }
+
+    clone() {
+        let value = this.val;
+        if (this.type == "list") {
+            // Clone the array. The tokens are immutable so sharing references
+            // to them should be fine.
+            value = this.val.slice();
+        }
+
+        return new Value(this.type, value, this.col);
     }
 }
 
@@ -396,19 +415,24 @@ let execute = function(prog, outputCallback, in_words, in_stack, in_indent) {
     };
 
     let builtinWords = {
+        // dup
         "d" : () => {
             let a = pop();
             push(a);
             push(a);},
+        // drop
         "x" : () => {
             pop();},
+        // print
         "." : () => {output(pop().val)},
+        // swap
         "s" : () => {
             let a = pop();
             let b = pop();
             stack.push(a);
             stack.push(b);
         },
+        // rot
         "r" : () => {
             let c = pop();
             let b = pop();
@@ -467,6 +491,7 @@ let execute = function(prog, outputCallback, in_words, in_stack, in_indent) {
             } else {
                 push(makebool(true));
             }},
+        // conditional
         "?" : () => {
             let else_quot = pop();
             let then_quot = pop();
@@ -483,6 +508,7 @@ let execute = function(prog, outputCallback, in_words, in_stack, in_indent) {
                 runQuotation(else_quot);
             }
         },
+        // times
         "t" : () => {
             let src = pop();
             let amt = pop();
@@ -495,39 +521,35 @@ let execute = function(prog, outputCallback, in_words, in_stack, in_indent) {
                 execute(new_prog, outputCallback, words, stack, indent+1);
             }
         },
+        // quotation invocation
         "i" : () => {
             let src = pop();
             type_assert("quotation", src);
             runQuotation(src);
         },
+        // stack debug
         "å" : () => {
             output(stack);
         },
+        // get
         "g" : () => {
-            let index = pop();
-            let list = pop();
+            const index = pop();
+            const list = pop();
             type_assert("number", index);
-            type_assert("quotation", list);
+            type_assert("list", list);
 
-            let ind = Math.floor(index.val);
-            let list_tokens = parse(list.val, {"offset" : list.col });
+            const ind = Math.floor(index.val);
 
-            if (ind < 0 || ind >= list_tokens.length) {
+            if (ind < 0 || ind >= list.val.length) {
                 throw runtimeError("Index " + ind + " out of range.");
             }
 
-            // We extract an item from the list and return it wrapped in a
-            // quotation. If the programmer wants the underlying value the
-            // quotation can be just evaluated.
+            const token = list.val[ind];
 
-            let item = list_tokens[ind];
-            //console.log(list);
-            //console.log(list_tokens);
-            //console.log("index", ind);
-            //console.log(item);
-
-            push(new Value("quotation", item.lexeme, item.col));
+            push(list);
+            execute([token], outputCallback, words, stack, indent);
         },
+        // split TODO remove?
         "c" : () => {
             let separator = pop();
             let str = pop();
@@ -542,6 +564,7 @@ let execute = function(prog, outputCallback, in_words, in_stack, in_indent) {
             // TODO str.col is incorrect, should be actually position of "c"
             push(new Value("quotation", stringified_list, str.col));
         },
+        // map
         "m" : () => {
             let func = pop();
             let list = pop();
@@ -605,6 +628,7 @@ let execute = function(prog, outputCallback, in_words, in_stack, in_indent) {
             let program = parse(literal_string, {"offset" : list.col });
             execute(program, outputCallback, words, stack, indent);
         },
+        // execute js code
         "e" : () => {
             let to_native = function(value) {
                 if (!(value instanceof Value)) {
@@ -683,11 +707,10 @@ let execute = function(prog, outputCallback, in_words, in_stack, in_indent) {
                 args.push(val);
             }
 
-            log("func: ", func);
-            log("args: ", args);
+            // log("func: ", func);
+            // log("args: ", args);
 
             // TODO handle 'this' somehow
-            debugger;
             let ret = func.apply(null, args);
             log("got from native call: " + ret);
             push(from_native(ret));
