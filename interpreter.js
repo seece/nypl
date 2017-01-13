@@ -687,14 +687,16 @@ let execute = function(prog, outputCallback, in_words, in_stack, in_indent) {
                 return null;
             }
 
-            const code = stak.pop();
+            debugger;
+
+            const code = pop();
             type_assert("string", code);
-            const this_arg = stak.pop();
+            const this_arg = pop();
 
             const func = eval(code.val);
             const args = [];
             for (let i=0 ; i<func.length ; i++) {
-                args.push(to_native(stak.pop()));
+                args.push(to_native(pop()));
             }
 
             // log("func: ", func);
@@ -711,6 +713,7 @@ let execute = function(prog, outputCallback, in_words, in_stack, in_indent) {
 
     for (let token of prog) {
         log(" ".repeat(indent) + token.text+ "\t" + "[" + stack + "]");
+        debugger;
 
         //log("--> "+inspect(token) + "\nstack: ", util.inspect(stack));
         if (token instanceof StringLiteral) {
@@ -741,12 +744,12 @@ let execute = function(prog, outputCallback, in_words, in_stack, in_indent) {
 
         } else if (token instanceof List) {
             const elementValues = [];
-            for (const i in token.elements) {
+            for (const t of token.elements) {
                 const temp_stack = []
                 //log("elems: ", token.elements[i]);
-                execute([token.elements[i]], outputCallback, words, temp_stack);
+                execute([t], outputCallback, words, temp_stack);
                 // Lists are allowed only contain single literals so there should be a single value.
-                elementValues.push(temp_stack[0]);
+                elementValues.push(t);
                 //log("first: ", temp_stack[0]);
             }
             stack.push(new Value("list", elementValues, token.col));
