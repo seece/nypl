@@ -663,6 +663,7 @@ let execute = function(prog, outputCallback, in_words, in_stack, in_indent) {
                 execute(func_tokens, outputCallback, words, stack, indent+1);
             }
         },
+        // wrap operator
         "w" : () => {
             let number_val = pop();
             type_assert("number", number_val);
@@ -672,39 +673,23 @@ let execute = function(prog, outputCallback, in_words, in_stack, in_indent) {
                 throw runtimeError("Trying to read " + count + " values from the stack.");
             }
 
-            let literals = [];
+            let values = [];
 
             for (let i = 0; i < count; i++) {
-                let value = pop();
-                literals.push(value.toLiteral());
+                values.push(pop());
             }
 
-            let literal_string = '(' + literals.join(" ") + ')';
-            // console.log("literal string: " + literal_string);
-
-            // Push the collected values to the stack as a quotation.
-
-            // TODO numberval_col is incorrect, should be position of w
-            let program = parse(literal_string, {"offset" : number_val.col });
-            execute(program, outputCallback, words, stack, indent);
+            // TODO number_val.col is not the corret column
+            push(new Value("list", values, number_val.col));
         },
+        // unwrap, or "spread" operator
         "u" : () => {
             let list = pop();
-            type_assert("quotation", list);
-            let list_tokens = parse(list.val, {"offset" : list.col });
-            let literals = [];
+            type_assert("list", list);
 
-            for (let token of list_tokens) {
-                literals.push(token.lexeme);
+            for (let i = list.val.length - 1; i >= 0; i--) {
+                push(list.val[i]);
             }
-
-            let literal_string = literals.join(" ");
-            console.log("unwrap literal string: " + literal_string);
-
-            // Push the collected values to the stack individually.
-            // TODO list.col is incorrect, should be position of w
-            let program = parse(literal_string, {"offset" : list.col });
-            execute(program, outputCallback, words, stack, indent);
         },
         // execute js code
         "_" : () => {
