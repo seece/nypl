@@ -1,9 +1,7 @@
-# The Nypl Language Guide v0.2
+# The Nypl Language Guide v0.3
 *Designed for Simo™*
 
-A Forth-like, almost concatenative language with functional features, inspired by Factor, [Joy](http://www.kevinalbrecht.com/code/joy-mirror/j01tut.html), lisp, [IBNIZ](http://pelulamu.net/ibniz/) and Kx Systems' Q language.
-
-[Try Nypl online!](http://seece.github.io/nypl/)
+A Forth-like, almost concatenative language with functional features, inspired by [Factor](https://factorcode.org/), JavaScript, Lisp, [IBNIZ](http://pelulamu.net/ibniz/) and APL.
 
 ## Examples
 
@@ -12,11 +10,29 @@ To compute sum of two numbers, push the literals `1` and `2` on the stack and th
     > 1 2 + .
     3
 
-To calculate the product of two sums 5+6 and 1 + 2:
+To calculate the product of two sums 5 + 6 and 1 + 2:
 
     > 1 2 + 5 6 + * .
-    90
+    34
 
+What happened here was that first numbers `1` and `2` were pushed on the stack, and `+` was called:
+
+    _________                   _____
+    | 1 | 2 | -> call word + -> | 3 |
+    ---------                   -----
+
+The sum of numbers `5` and `6` were pushed to the stack and added too:
+
+    _____________                     __________
+    | 3 | 5 | 6 |  -> call word + ->  | 3 | 11 |
+    -------------                     ----------
+
+Then `*` was invoked. It popped off the two topmost items `3` and `11` off the stack and pushed in the product of them back in:
+     __________                   ______
+     | 3 | 11 | -> call word * -> | 33 |
+     ----------                   ------
+
+### Recursion
 
 A terrible tail recursion for loop that prints the numbers 2, 1, 0:
 
@@ -63,7 +79,7 @@ so it's square(x) -> x^2. `;` ends the word definition
 
     :Sd*;
 
-I can be then called like thw following:
+I can be then called like this:
 
     > 5 S
     25
@@ -181,46 +197,17 @@ Example: print `hi` five times:
 
 
 ### Lists
-Quotations also function as lists. Individual list items can be extracted with `g`.
+TODO
 
-    g = get item ( list index -- item )
+* lists vs. quotations
+* native objects
+* unified element access
+* wrap & unwrap
 
-The item is always returned as a quotation. To get the underlying value it needs to be evaluated with `i`:
+### Interfacing with JavaScript
 
-    > ("a" "b" "c") 1 g
-    q6
-    > ("a" "b" "c") 1 g i
-    b
+TODO
 
-Strings can be split to quotations using the cut `c` word:
-
-    c = cut string ( string separator -- list )
-
-    > "hello" "" c 1gi
-    e
-
-Map applies a quotation to each element of a list.
-The `func` quotation receives a single value from the list.
-In order to use the value it needs to be first evaluated with the `i` word.
-
-    m = map ( list func -- new_list )
-
-Squaring every element of a list can be done with a map-operation:
-
-    > (1 2 3) (id*) m
-    1 4 9
-
-You can also pick N elements from the stack and wrap them into a quotation with the `w` word:
-
-    w = wrap ( N -- list_with_N_elements )
-
-    >"first" "second" "fourth?" 3 w
-    q27
-
-A list with N elements can be unwrapped and pushed back to the stack with the `u` word:
-
-    u = unwrap ( list --- item_1 item_2 ... item_N )
-
-    > (1 2 3) u
-    1 2 3
+* document the `_` command
+* implementing callbacks
 
