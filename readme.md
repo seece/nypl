@@ -28,6 +28,7 @@ The sum of numbers `5` and `6` were pushed to the stack and added too:
     -------------                     ----------
 
 Then `*` was invoked. It popped off the two topmost items `3` and `11` off the stack and pushed in the product of them back in:
+
      __________                   ______
      | 3 | 11 | -> call word * -> | 33 |
      ----------                   ------
