@@ -761,7 +761,10 @@ let execute = function(prog, outputCallback, in_words, in_stack, in_indent) {
                 throw runtimeError("Trying to redefine builtin word at "+token.col+": " + token.name);
             }
 
-            words[token.name] = () => execute(token.tokens, outputCallback, words, stack);
+            // Save the word definition to the outside word object given as an argument
+            // and then update the local object to match the new state.
+            in_words[token.name] = () => execute(token.tokens, outputCallback, words, stack);
+            words = Object.assign({}, in_words, builtinWords);
 
         } else if (token instanceof List) {
             const elementValues = [];
