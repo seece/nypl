@@ -346,7 +346,10 @@ class Value {
             return '(' + this.val + ')';
         } else if (this.type == "list") {
             //return '[' + (this.val.map((x) => x.lexeme)).join(" ") + ']'
+            //log("list: ", this.val);
             return '[' + this.val.map((x) => x.toLiteral()).join(" ") + ']'
+        } else if (this.type == "object") {
+            return JSON.stringify(this.val, null, 2);
         }
         return String(this.val);
     }
@@ -414,6 +417,65 @@ let execute = function(prog, outputCallback, in_words, in_stack, in_indent) {
 
         return new_ind;
     };
+
+    let to_native = function(value) {
+        if (!(value instanceof Value)) {
+            throw "invalid type to to_native: " + typeof(value) + ", " + value
+            return null;
+        }
+
+        if (value.type == "list") {
+            return value.val.map(to_native);
+        }
+
+        if (value.type == "quotation") {
+            return function () {
+                for(var i = 0; i < arguments.length; i++) {
+                    stack.push(from_native(arguments[i]));
+                }
+                //log("quotation call args: ", arguments);
+                runQuotation(value);
+                let output = pop();
+                //log("output: ", output);
+                return to_native(output);
+            }
+
+        }
+
+        return value.val;
+    }
+
+    let from_native = function(in_value) {
+        const types = {
+            "get": function(prop) {
+                return Object.prototype.toString.call(prop);
+            },
+            "object": "[object Object]",
+            "array": "[object Array]",
+            "string": "[object String]",
+            "boolean": "[object Boolean]",
+            "number": "[object Number]"
+        }
+
+        // log("type: " + types.get(in_value));
+
+        switch (types.get(in_value)) {
+            case types.object:
+                return new Value("object", in_value, -1);
+            case types.array:
+                let boxed = in_value.map(from_native);
+                return new Value("list", boxed, -1);
+            case types.string:
+                return new Value("string", in_value, -1);
+            case types.boolean:
+                return new Value("number", in_value ? 1 : 0, -1);
+            case types.number:
+                return new Value("number", in_value, -1);
+        }
+
+        throw "Unsupported native object: " + types.get(in_value)
+        return null;
+    }
 
     let builtinWords = {
         // dup
@@ -535,17 +597,35 @@ let execute = function(prog, outputCallback, in_words, in_stack, in_indent) {
         // get
         "g" : () => {
             const index = pop();
-            const list = pop();
-            type_assert("number", index);
-            type_assert("list", list);
 
-            const ind = Math.floor(index.val);
+            if (index.type == "number") {
+                const list = pop();
+                type_assert("list", list);
 
-            if (ind < 0 || ind >= list.val.length) {
-                throw runtimeError("Index " + ind + " out of range.");
+                const ind = Math.floor(index.val);
+
+                if (ind < 0 || ind >= list.val.length) {
+                    throw runtimeError("Index " + ind + " out of range.");
+                }
+
+                push(list);
+                push(list.val[ind].clone());
+            } else if (index.type == "string") {
+                const obj = pop();
+                type_assert("object", obj);
+
+                const ind = to_native(index);
+
+                if (!(ind in obj.val)) {
+                    throw runtimeError("Index '" + ind + "' not in obj " + obj.val);
+                }
+
+                const result = obj.val[ind];
+                push(obj);
+                push(from_native(result));
+            } else {
+                throw runtimeError("Invalid index type " + index.type);
             }
-
-            push(list.val[ind].clone());
         },
         // split TODO remove?
         "c" : () => {
@@ -608,8 +688,8 @@ let execute = function(prog, outputCallback, in_words, in_stack, in_indent) {
             let program = parse(literal_string, {"offset" : number_val.col });
             execute(program, outputCallback, words, stack, indent);
         },
-        "u" : (stak) => {
-            let list = stak.pop();
+        "u" : () => {
+            let list = pop();
             type_assert("quotation", list);
             let list_tokens = parse(list.val, {"offset" : list.col });
             let literals = [];
@@ -627,73 +707,22 @@ let execute = function(prog, outputCallback, in_words, in_stack, in_indent) {
             execute(program, outputCallback, words, stack, indent);
         },
         // execute js code
-        "_" : (stak) => {
-            let to_native = function(value) {
-                if (!(value instanceof Value)) {
-                    throw "invalid type to to_native: " + typeof(value)
-                    return null;
-                }
-
-                if (value.type == "list") {
-                    return value.val.map(to_native);
-                }
-
-                if (value.type == "quotation") {
-                    return function () {
-                        for(var i = 0; i < arguments.length; i++) {
-                            stack.push(from_native(arguments[i]));
-                        }
-                        log("quotation call args: ", arguments);
-                        runQuotation(value);
-                        let output = stak.pop();
-                        log("output: ", output);
-                        return to_native(output);
-                    }
-
-                }
-
-                return value.val;
-            }
-
-            let from_native = function(in_value) {
-                const types = {
-                    "get": function(prop) {
-                        return Object.prototype.toString.call(prop);
-                    },
-                    "object": "[object Object]",
-                    "array": "[object Array]",
-                    "string": "[object String]",
-                    "boolean": "[object Boolean]",
-                    "number": "[object Number]"
-                }
-
-                log("type: " + types.get(in_value));
-
-                switch (types.get(in_value)) {
-                    case types.object:
-                        return new Value("object", in_value, -1);
-                    case types.array:
-                        let boxed = in_value.map(from_native);
-                        return new Value("list", boxed, -1);
-                    case types.string:
-                        return new Value("string", in_value, -1);
-                    case types.boolean:
-                        return new Value("number", in_value ? 1 : 0, -1);
-                    case types.number:
-                        return new Value("number", in_value, -1);
-                }
-
-                throw "Unsupported native object: " + types.get(in_value)
-                return null;
-            }
-
-            debugger;
-
+        "_" : () => {
             const code = pop();
             type_assert("string", code);
             const this_arg = pop();
+            const native_this = to_native(this_arg);
 
-            const func = eval(code.val);
+            let func = undefined;
+
+            try {
+                func = eval(code.val);
+            } catch (e) {
+                log("'" + code.val + "' not found, looking on 'this'", native_this)
+                func = native_this[code.val];
+            }
+
+
             const args = [];
             for (let i=0 ; i<func.length ; i++) {
                 args.push(to_native(pop()));
@@ -702,18 +731,17 @@ let execute = function(prog, outputCallback, in_words, in_stack, in_indent) {
             // log("func: ", func);
             // log("args: ", args);
 
-            let ret = func.apply(to_native(this_arg), args);
+            let ret = func.apply(native_this, args);
             log("got from native call: " + ret);
             push(from_native(ret));
         }
     };
 
-    let words = in_words || {}; // FIXME don't use OR here
-    Object.assign(words, builtinWords);
+    //let words = in_words || {}; // FIXME don't use OR here
+    let words = Object.assign({}, in_words, builtinWords);
 
     for (let token of prog) {
         log(" ".repeat(indent) + token.text+ "\t" + "[" + stack + "]");
-        debugger;
 
         //log("--> "+inspect(token) + "\nstack: ", util.inspect(stack));
         if (token instanceof StringLiteral) {
@@ -727,29 +755,22 @@ let execute = function(prog, outputCallback, in_words, in_stack, in_indent) {
                 throw runtimeError("Non-existent word at "+token.col +": " + util.inspect(token));
             }
 
-            words[token.text](stack);
-
+            words[token.text]();
         } else if (token instanceof Definition) {
             if (token.name in builtinWords) {
                 throw runtimeError("Trying to redefine builtin word at "+token.col+": " + token.name);
             }
 
-            // The stack needs to get passed in as an argument since the variable 'stack'
-            // would otherwise point to an object instance created on an earlier execute()
-            // invocation. This is the case when running inside REPL.
-            // Also, list evaluation messes up the closure.
-            words[token.name] = (in_stack) => {
-                execute(token.tokens, outputCallback, words, in_stack);
-            };
+            words[token.name] = () => execute(token.tokens, outputCallback, words, stack);
 
         } else if (token instanceof List) {
             const elementValues = [];
             for (const t of token.elements) {
                 const temp_stack = []
-                //log("elems: ", token.elements[i]);
+                //log("elems: ", t);
                 execute([t], outputCallback, words, temp_stack);
                 // Lists are allowed only contain single literals so there should be a single value.
-                elementValues.push(t);
+                elementValues.push(temp_stack[0]);
                 //log("first: ", temp_stack[0]);
             }
             stack.push(new Value("list", elementValues, token.col));
