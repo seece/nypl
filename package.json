@@ -1,0 +1,24 @@
+{
+  "name": "nypl",
+  "version": "1.0.0",
+  "description": "Poor man's JavaScript",
+  "main": "interpreter.js",
+  "scripts": {
+    "test": "node test.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/seece/nypl.git"
+  },
+  "keywords": [
+    "scripting",
+    "language",
+    "forth"
+  ],
+  "author": "Pekka Väänänen",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/seece/nypl/issues"
+  },
+  "homepage": "https://github.com/seece/nypl#readme"
+}
