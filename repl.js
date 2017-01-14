@@ -30,7 +30,7 @@ let ask = function() {
 function *repl() {
     while(true) {
         let result = yield ask();
-        console.log("Stack: ", result);
+        console.log("Stack: ", result.toString());
     }
 }
 
