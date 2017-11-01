@@ -16,10 +16,14 @@ rl.on('attemptClose',rl.close);
 let words = {};
 let stack = [];
 
+let extfuncs = {
+    test: (s) => {return "test got "+s+"";}
+}
+
 let ask = function() {
     rl.question('>', (answer) => {
         try {
-            var result = nypl.run(answer, (msg) => console.log(">> ", msg), words, stack);
+            var result = nypl.run(answer, (msg) => console.log(">> ", msg), extfuncs, words, stack);
             it.next(result);
         } catch (e) {
             it.next(e);

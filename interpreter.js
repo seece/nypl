@@ -173,7 +173,7 @@ var parse = function(code, _context) {
                 if (esc in escapes) {
                     str += escapes[esc];
                 } else {
-                    throw parsingError("Invalid escape char: " + esc);
+                    throw parsingError("Invalid escape sequence: " + esc);
                 }
             } else if (c == "\"") {
                 break;
@@ -334,7 +334,7 @@ class Value {
         return this.toLiteral();
     }
 
-    // Returns a string that returns the exact same value when evaluated.
+    // Returns a string that evaluates to the same value.
     toLiteral() {
         if (this.type == "string") {
             return '"' + this.val + '"';
@@ -371,7 +371,7 @@ let runtimeError = function(msg) {
     return "runtimeError: " + msg;
 }
 
-let execute = function(prog, outputCallback, in_words, in_stack, in_indent) {
+let execute = function(prog, outputCallback, externals, in_words, in_stack, in_indent) {
     // The caller can pass in a stack and a dictionary context.
     // They are used in quotation invocation.
     let stack = in_stack || [];
@@ -691,6 +691,21 @@ let execute = function(prog, outputCallback, in_words, in_stack, in_indent) {
                 push(list.val[i]);
             }
         },
+        // run an external command
+        // currently only a single argument is supported
+        "e" : () => {
+            const funcname = pop();
+            type_assert("string", funcname);
+            const arg = pop();
+
+            try {
+                let res = externals[funcname.val](to_native(arg));
+                push(from_native(res));
+            } catch (e) {
+                log(e);
+                log("External call failed: " + funcname.val+ " with " + arg);
+            }
+        },
         // execute js code
         "_" : () => {
             const code = pop();
@@ -707,7 +722,6 @@ let execute = function(prog, outputCallback, in_words, in_stack, in_indent) {
                 func = native_this[code.val];
             }
 
-
             const args = [];
             for (let i=0 ; i<func.length ; i++) {
                 args.push(to_native(pop()));
@@ -722,7 +736,6 @@ let execute = function(prog, outputCallback, in_words, in_stack, in_indent) {
         }
     };
 
-    //let words = in_words || {}; // FIXME don't use OR here
     let words = Object.assign({}, in_words, builtinWords);
 
     for (let token of prog) {
@@ -770,8 +783,8 @@ let execute = function(prog, outputCallback, in_words, in_stack, in_indent) {
     return stack
 }
 
-let run = function(src, outputCallback, words, stack) {
-    return execute(parse(src), outputCallback, words, stack);
+let run = function(src, outputCallback, externals, words, stack) {
+    return execute(parse(src), outputCallback, externals, words, stack);
 }
 
 exports.parse = parse;
