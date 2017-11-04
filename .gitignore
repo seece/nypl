@@ -2,3 +2,4 @@
 *.swo
 *.*~
 Session.vim
+node_modules/

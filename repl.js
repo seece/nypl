@@ -23,7 +23,7 @@ let extfuncs = {
 let ask = function() {
     rl.question('>', (answer) => {
         try {
-            var result = nypl.run(answer, (msg) => console.log(">> ", msg), extfuncs, words, stack);
+            var result = nypl.run(answer, (msg) => console.log("    > ", msg), extfuncs, words, stack);
             it.next(result);
         } catch (e) {
             it.next(e);
