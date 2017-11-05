@@ -5,13 +5,193 @@ var exports = module.exports = {};
 
 var log = console.log;
 
-var parse = function(code, _context) {
+let runtimeError = function(msg) {
+    console.trace(msg);
+    return "runtimeError: " + msg;
+}
+
+let checkType = function(type, obj) {
+    let actual = Object.prototype.toString.call(obj).toLowerCase();
+    return actual === '[object '+type+']';
+}
+
+let assertType = function(type, obj) {
+    let actual = Object.prototype.toString.call(obj).toLowerCase();
+    if (!checkType(type, obj)){throw runtimeError("Got value of type " + actual + " instead of " + type + ": " + obj)}
+}
+
+var makeRunContext = function(stack, variables, outputCallback, exec) {
+    let currentCall = "";
+    let pop = () => {
+        if (stack.length == 0) {
+            throw runtimeError("Stack underflow at '"+currentCall+"'!");
+        }
+        return stack.pop();
+    }
+
+    let push = (a) => {
+        stack.push(a);
+    }
+
+    let output = outputCallback || ((obj) => {
+        console.log(">> ", obj);
+    });
+
+    let builtins = {
+        // dup
+        "d" : () => {
+            let a = pop();
+            push(a);
+            push(a);},
+        // drop
+        "x" : () => {
+            pop();},
+        // print
+        "." : () => {output(pop())},
+        // swap
+        "s" : () => {
+            let a = pop();
+            let b = pop();
+            stack.push(a);
+            stack.push(b);
+        },
+        // rot
+        "r" : () => {
+            let c = pop();
+            let b = pop();
+            let a = pop();
+            push(c);
+            push(a);
+            push(b);
+        },
+        "+" : () => {
+            let a = pop();
+            let b = pop();
+            stack.push(a+b);},
+        "-" : () => {
+            let a = pop();
+            let b = pop();
+            assertType("number", a);
+            assertType("number", b);
+            stack.push(b - a);},
+        "/" : () => {
+            let a = pop();
+            let b = pop();
+            assertType("number", a);
+            assertType("number", b);
+            stack.push(b / a);},
+        "%" : () => {
+            let a = pop();
+            let b = pop();
+            assertType("number", a);
+            assertType("number", b);
+            stack.push(b % a);},
+        "*" : () => {
+            let a = pop();
+            let b = pop();
+            assertType("number", a);
+            assertType("number", b);
+            push(a*b)},
+        "=" : () => {
+            let a = pop();
+            let b = pop();
+            stack.push(a == b);},
+        "<" : () => {
+            let a = pop();
+            let b = pop();
+            stack.push(b < a);},
+        ">" : () => {
+            let a = pop();
+            let b = pop();
+            stack.push(b > a);},
+        "!" : () => {
+            let a = pop();
+            push(!a);},
+        "?" : () => {
+            let else_func = pop();
+            let then_func = pop();
+            let if_func = pop();
+            assertType("array", if_func);
+            assertType("array", then_func);
+            assertType("array", else_func);
+            exec(if_func);
+            let result = pop();
+            if (result) {
+                exec(then_func);
+            } else {
+                exec(else_func);
+            }
+        },
+        // times
+        "t" : () => {
+            let src = pop();
+            let amt = pop();
+            assertType("number", amt);
+            assertType("array", src);
+            let times = amt.val;
+            while (times > 0) {
+                times--;
+                exec(new_prog);
+            }
+        },
+        // quotation invocation
+        "i" : () => {
+            let src = pop();
+            assertType("array", src);
+            exec(src);
+        },
+        // stack debug
+        "å" : () => {
+            output(stack);
+        },
+        // get
+        "g" : () => {
+            const index = pop();
+            const list = pop();
+            push(list);
+            if (!variables.hasOwnProperty(index)) {
+                throw runtimeError("Object has no index '"+index+"'!");
+            }
+            const value = list[index];
+            push(value);
+        },
+    }
+
+    let o = {
+        call: (name) => {
+        currentCall = name;
+        if (variables.hasOwnProperty(name)) {
+            return exec(variables[name]);
+        }
+        return builtins[name]();
+    },
+        makeStore: (name) => {
+            let f = () => {
+                let value = pop();
+                // Literals stored in a variable are wrapped in a list
+                // in order to execute them in the call function above.
+                if (!checkType("array", value)) {
+                    value = [value];
+                }
+                variables[name] = value;
+            };
+
+            f.toString = () => {return "Store: '"+name+"'"};
+
+            return f;
+        }
+    }
+
+    return Object.assign(o, {"builtins": builtins});
+}
+
+var parse = function(code, ctx, _debugpos) {
     let pos = 0; // points to the next character to be read
     const EOF = -1;
-    let context = _context || {"offset" : 0};
+    let debugpos = _debugpos || {"offset" : 0};
 
     let getColumn = () => {
-        return context.offset + pos-1;
+        return debugpos.offset + pos-1;
     }
 
     let parsingError = (msg) => {
@@ -83,13 +263,14 @@ var parse = function(code, _context) {
             }
         }
 
-        return parseInt(digit);
+        return parseFloat(digit);
     }
 
     let readCall = () => {
         let name = getLast();
         let f = () => {
             log("stub: calling word '" + name + "'");
+            ctx.call(name);
         }
         f.toString = ()=>{return "Call '"+name+"'";}
         return f;
@@ -130,28 +311,9 @@ var parse = function(code, _context) {
         }
     }
 
-    let readDefinition = () => {
-        skipWhitespace();
-        let userword = read();
-        let c = read();
-        let usercode = ""
-        while (c != ";") {
-            if (peek() == EOF) {
-                throw parsingError("Unexpected EOF when reading a definition.");
-            }
-            usercode += c;
-            c = read();
-        }
-
-        /*
-        var tokens = parse(usercode, {
-            "desc" : "definition of "+userword,
-            "offset" : getColumn()});
-        return new Definition(getColumn(), userword, usercode, tokens);
-        */
-        // FIXME actually save the definition to a map
-        log("read definition for user word '"+userword+"': " + usercode);
-        return -999;
+    let readStore = () => {
+        let variable = read();
+        return ctx.makeStore(variable);
     }
 
     let readList = () => {
@@ -194,7 +356,7 @@ var parse = function(code, _context) {
             } else if (isUserword(c) || isBuiltin(c)) {
                 tokens.push(readCall());
             } else if (c == ':') {
-                tokens.push(readDefinition());
+                tokens.push(readStore());
             } else if (c == '(') {
                 tokens.push(readList());
             } else {
@@ -211,17 +373,58 @@ var parse = function(code, _context) {
     return tokens;
 }
 
-let execute = function(prog, outputCallback, externals, in_words, in_stack, in_indent) {
+let execute = function(prog, outputCallback, externals, words, stack, indent) {
     let output = outputCallback || ((obj) => {
         console.log(">> ", obj);
     })
-    output("execute stub");
+
+    let pc = 0;
+    while (pc < prog.length) {
+        let value = prog[pc];
+        pc++;
+
+        const types = {
+            "get": function(prop) {
+                return Object.prototype.toString.call(prop);
+            },
+            "object": "[object Object]",
+            "array": "[object Array]",
+            "string": "[object String]",
+            "boolean": "[object Boolean]",
+            "number": "[object Number]",
+            "function": "[object Function]"
+        }
+
+        /*switch (types.get(value)) {
+            case types.array:
+                stack.push(value);
+            case types.string:
+                stack.push(value);
+            case types.number:
+                stack.push(value);
+            case types.number:
+                stack.push(value);
+        }*/
+
+        if (types.get(value) === types.function) {
+            log("running: " + value);
+            value();
+        } else {
+            stack.push(value);
+        }
+    }
 }
 
-let run = function(code, cb, extfuncs, words, stack) {
+let run = function(code, cb, extfuncs, variables, stack) {
     log("got code: " + code);
-    let parsed_code = parse(code);
-    log("parsed: " + parsed_code);
+
+    let ctx = makeRunContext(stack, variables, cb, (prog)=>
+        {execute(prog, cb, extfuncs, variables, stack)}
+    );
+    let program = parse(code, ctx);
+    log("program: " + program);
+
+    execute(program, cb, extfuncs, variables, stack);
 
     return stack;
 }

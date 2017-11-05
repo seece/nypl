@@ -15,19 +15,19 @@ let run = function(code) {
 
 {
 const result = run('(xx2+) [ 1 2 3 ] "map" _')
-assertEqual(result[0].type, 'list')
-assertEqual(result[0].val.length, 3)
-assertEqual(result[0].val[0].val, 3)
+//assertEqual(result[0].type, 'list')
+assertEqual(result[0].length, 3)
+assertEqual(result[0][0], 3)
 }
 
 {
 const result = run('0 "()=>{return {\\"a\\":5}}" _ "a" g')
-assertEqual(result[1].type, 'number')
-assertEqual(result[1].val, 5)}
+//assertEqual(result[1], 'number')
+assertEqual(result[1], 5)}
 
 {
 const result = run('[1 2 3] u 3 w')
-assertEqual(result[0].type, 'list')
-assertEqual(result[0].val[0].val, 1);
-assertEqual(result[0].val[2].val, 3);
+//assertEqual(result[0].type, 'list')
+assertEqual(result[0][0], 1);
+assertEqual(result[0][2], 3);
 }
