@@ -200,7 +200,7 @@ Example: print `hi` five times:
 ### Lists
 TODO
 
-* lists vs. quotations
+* lists
 * native objects
 * unified element access
 * wrap & unwrap
@@ -209,6 +209,8 @@ TODO
 
 TODO
 
-* document the `_` command
-* implementing callbacks
+* update documentation
+* array object toString decoration
+    * otherwise printing will miss parens
+
 

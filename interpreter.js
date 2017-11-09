@@ -191,6 +191,25 @@ var makeRunContext = function(stack, variables, outputCallback, externals, exec)
                 push(list[i]);
             }
         },
+        // filter
+        "f" : () => {
+            let predicate = pop();
+            assertType("array", predicate);
+            let list = pop();
+            assertType("array", list);
+            let out = []
+
+            for (let i = 0; i < list.length; i++) {
+                push(list[i]);
+                exec(predicate);
+                let result = pop();
+                if (result) {
+                    out.push(list[i]);
+                }
+            }
+
+            push(out);
+        },
 
         // JavaScript interop commands
 
@@ -425,7 +444,7 @@ var parse = function(code, ctx, _debugpos) {
             c = read();
         }
 
-        return parse(inner, {"offset" : getColumn()});
+        return parse(inner, Object.assign(ctx, {"offset" : getColumn()}));
     }
 
     let tokens = [];
