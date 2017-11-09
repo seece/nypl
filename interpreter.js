@@ -20,7 +20,7 @@ let assertType = function(type, obj) {
     if (!checkType(type, obj)){throw runtimeError("Got value of type " + actual + " instead of " + type + ": " + obj)}
 }
 
-var makeRunContext = function(stack, variables, outputCallback, exec) {
+var makeRunContext = function(stack, variables, outputCallback, externals, exec) {
     let currentCall = "";
     let pop = () => {
         if (stack.length == 0) {
@@ -38,6 +38,8 @@ var makeRunContext = function(stack, variables, outputCallback, exec) {
     });
 
     let builtins = {
+        // Stack manipulation commands
+
         // dup
         "d" : () => {
             let a = pop();
@@ -64,6 +66,9 @@ var makeRunContext = function(stack, variables, outputCallback, exec) {
             push(a);
             push(b);
         },
+
+        // Arithmetic commands
+
         "+" : () => {
             let a = pop();
             let b = pop();
@@ -107,6 +112,10 @@ var makeRunContext = function(stack, variables, outputCallback, exec) {
         "!" : () => {
             let a = pop();
             push(!a);},
+
+        // Control flow and list operations
+
+        // conditional
         "?" : () => {
             let else_func = pop();
             let then_func = pop();
@@ -134,7 +143,7 @@ var makeRunContext = function(stack, variables, outputCallback, exec) {
                 exec(new_prog);
             }
         },
-        // quotation invocation
+        // code list invocation
         "i" : () => {
             let src = pop();
             assertType("array", src);
@@ -155,6 +164,81 @@ var makeRunContext = function(stack, variables, outputCallback, exec) {
             const value = list[index];
             push(value);
         },
+        // wrap elements off the stack to a list
+        "w" : () => {
+            let count = pop();
+            assertType("number", count);
+
+            if (count < 0) {
+                throw runtimeError("Trying to read " + count + " values from the stack.");
+            }
+
+            let values = [];
+
+            for (let i = 0; i < count; i++) {
+                values.push(pop());
+            }
+
+            values.reverse();
+            push(values);
+        },
+        // unwrap or "spread" the list onto the stack
+        "u" : () => {
+            let list = pop();
+            assertType("array", list);
+
+            for (let i = 0; i < list.length; i++) {
+                push(list[i]);
+            }
+        },
+
+        // JavaScript interop commands
+
+        // run an external command
+        // currently only a single argument is supported
+        "e" : () => {
+            const funcname = pop();
+            assertType("string", funcname);
+            const arg = pop();
+
+            try {
+                let res = externals[funcname](arg);
+                push(res);
+            } catch (e) {
+                log(e);
+                log("External call failed: " + funcname+ " with " + arg);
+            }
+        },
+        // execute js code
+        "_" : () => {
+            const code = pop();
+            assertType("string", code);
+            let this_arg = undefined;
+            let func = undefined;
+
+            try {
+                func = eval(code);
+            } catch (e) {
+                log("'" + code+ "' eval failed. Looking on 'this'", this_arg)
+                this_arg = pop();
+                func = this_arg[code];
+            }
+
+            // func.length contains the number of arguments the function
+            // expects
+
+            const args = [];
+            for (let i = 0; i < func.length; i++) {
+                args.push(pop());
+            }
+
+            // log("func: ", func);
+            // log("args: ", args);
+
+            let ret = func.apply(this_arg, args);
+            log("got from native call: " + ret);
+            push(ret);
+        }
     }
 
     let o = {
@@ -418,7 +502,7 @@ let execute = function(prog, outputCallback, externals, words, stack, indent) {
 let run = function(code, cb, extfuncs, variables, stack) {
     log("got code: " + code);
 
-    let ctx = makeRunContext(stack, variables, cb, (prog)=>
+    let ctx = makeRunContext(stack, variables, cb, extfuncs, (prog)=>
         {execute(prog, cb, extfuncs, variables, stack)}
     );
     let program = parse(code, ctx);
