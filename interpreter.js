@@ -1,78 +1,304 @@
 "use strict";
 var util = require("util");
+var fuse = require("fuse.js");
 var exports = module.exports = {};
-
-class Token {
-    constructor(line, column) {
-        this.line = line;
-        this.col = column;
-        this.text = ""; // inner text, e.g. string without quotes
-        this.lexeme = ""; // full token text, e.g. string with quotes
-    }
-}
-
-class Word extends Token {
-    constructor(column, word) {
-        super(0, column);
-        this.text = word;
-        this.lexeme = word;
-    }
-}
-
-class Definition extends Token{
-    constructor(column, name, content, tokens) {
-        super(0, column);
-        this.name = name;
-        this.code = content;
-        this.tokens = tokens;
-        this.text = content;
-        this.lexeme = content;
-    }
-}
-
-
-class Literal extends Token {
-    constructor(column, text) {
-        super(0, column);
-        this.text = text;
-        this.lexeme = text;
-    }
-}
-
-class NumberLiteral extends Literal {
-    constructor(column, text) {
-        super(column, text);
-    }
-}
-
-class StringLiteral extends Literal {
-    constructor(column, text) {
-        super(column, text);
-        this.lexeme = '"' + text + '"';
-    }
-}
-
-class Quotation extends Literal {
-    constructor(column, col, text) {
-        super(column, text);
-        this.col = col
-        this.lexeme = '(' + text + ')';
-    }
-}
 
 var log = console.log;
 
-var parse = function(code, _context) {
-    let pos = 0; // points to the next character to be read
-    const EOF = -1;
-    let context = _context || {"offset" : 0};
+let runtimeError = function(msg) {
+    console.trace(msg);
+    return "runtimeError: " + msg;
+}
 
-    let getColumn = () => {
-        return context.offset + pos-1;
+let checkType = function(type, obj) {
+    let actual = Object.prototype.toString.call(obj).toLowerCase();
+    return actual === '[object '+type+']';
+}
+
+let assertType = function(type, obj) {
+    let actual = Object.prototype.toString.call(obj).toLowerCase();
+    if (!checkType(type, obj)){throw runtimeError("Got value of type " + actual + " instead of " + type + ": " + obj)}
+}
+
+var makeRunContext = function(stack, variables, outputCallback, externals, exec) {
+    let currentCall = "";
+    let pop = () => {
+        if (stack.length == 0) {
+            throw runtimeError("Stack underflow at '"+currentCall+"'!");
+        }
+        return stack.pop();
     }
 
-    let scanningError = (msg) => {
-        return "ScanningError at "+(getColumn())+": " + msg;
+    let push = (a) => {
+        stack.push(a);
+    }
+
+    let output = outputCallback || ((obj) => {
+        console.log(">> ", obj);
+    });
+
+    let builtins = {
+        // Stack manipulation commands
+
+        // dup
+        "d" : () => {
+            let a = pop();
+            push(a);
+            push(a);},
+        // drop
+        "x" : () => {
+            pop();},
+        // print
+        "." : () => {output(pop())},
+        // swap
+        "s" : () => {
+            let a = pop();
+            let b = pop();
+            stack.push(a);
+            stack.push(b);
+        },
+        // rot
+        "r" : () => {
+            let c = pop();
+            let b = pop();
+            let a = pop();
+            push(c);
+            push(a);
+            push(b);
+        },
+
+        // Arithmetic commands
+
+        "+" : () => {
+            let a = pop();
+            let b = pop();
+            stack.push(a+b);},
+        "-" : () => {
+            let a = pop();
+            let b = pop();
+            assertType("number", a);
+            assertType("number", b);
+            stack.push(b - a);},
+        "/" : () => {
+            let a = pop();
+            let b = pop();
+            assertType("number", a);
+            assertType("number", b);
+            stack.push(b / a);},
+        "%" : () => {
+            let a = pop();
+            let b = pop();
+            assertType("number", a);
+            assertType("number", b);
+            stack.push(b % a);},
+        "*" : () => {
+            let a = pop();
+            let b = pop();
+            assertType("number", a);
+            assertType("number", b);
+            push(a*b)},
+        "=" : () => {
+            let a = pop();
+            let b = pop();
+            stack.push(a == b);},
+        "<" : () => {
+            let a = pop();
+            let b = pop();
+            stack.push(b < a);},
+        ">" : () => {
+            let a = pop();
+            let b = pop();
+            stack.push(b > a);},
+        "!" : () => {
+            let a = pop();
+            push(!a);},
+
+        // Control flow and list operations
+
+        // conditional
+        "?" : () => {
+            let else_func = pop();
+            let then_func = pop();
+            let if_func = pop();
+            assertType("array", if_func);
+            assertType("array", then_func);
+            assertType("array", else_func);
+            exec(if_func);
+            let result = pop();
+            if (result) {
+                exec(then_func);
+            } else {
+                exec(else_func);
+            }
+        },
+        // times
+        "t" : () => {
+            let src = pop();
+            let amt = pop();
+            assertType("number", amt);
+            assertType("array", src);
+            let times = amt.val;
+            while (times > 0) {
+                times--;
+                exec(new_prog);
+            }
+        },
+        // code list invocation
+        "i" : () => {
+            let src = pop();
+            assertType("array", src);
+            exec(src);
+        },
+        // stack debug
+        "å" : () => {
+            output(stack);
+        },
+        // get
+        "g" : () => {
+            const index = pop();
+            const list = pop();
+            push(list);
+            if (!variables.hasOwnProperty(index)) {
+                throw runtimeError("Object has no index '"+index+"'!");
+            }
+            const value = list[index];
+            push(value);
+        },
+        // wrap elements off the stack to a list
+        "w" : () => {
+            let count = pop();
+            assertType("number", count);
+
+            if (count < 0) {
+                throw runtimeError("Trying to read " + count + " values from the stack.");
+            }
+
+            let values = [];
+
+            for (let i = 0; i < count; i++) {
+                values.push(pop());
+            }
+
+            values.reverse();
+            push(values);
+        },
+        // unwrap or "spread" the list onto the stack
+        "u" : () => {
+            let list = pop();
+            assertType("array", list);
+
+            for (let i = 0; i < list.length; i++) {
+                push(list[i]);
+            }
+        },
+        // filter
+        "f" : () => {
+            let predicate = pop();
+            assertType("array", predicate);
+            let list = pop();
+            assertType("array", list);
+            let out = []
+
+            for (let i = 0; i < list.length; i++) {
+                push(list[i]);
+                exec(predicate);
+                let result = pop();
+                if (result) {
+                    out.push(list[i]);
+                }
+            }
+
+            push(out);
+        },
+
+        // JavaScript interop commands
+
+        // run an external command
+        // currently only a single argument is supported
+        "e" : () => {
+            const funcname = pop();
+            assertType("string", funcname);
+            const arg = pop();
+
+            try {
+                let res = externals[funcname](arg);
+                push(res);
+            } catch (e) {
+                log(e);
+                log("External call failed: " + funcname+ " with " + arg);
+            }
+        },
+        // execute js code
+        "_" : () => {
+            const code = pop();
+            assertType("string", code);
+            let this_arg = undefined;
+            let func = undefined;
+
+            try {
+                func = eval(code);
+            } catch (e) {
+                log("'" + code+ "' eval failed. Looking on 'this'", this_arg)
+                this_arg = pop();
+                func = this_arg[code];
+            }
+
+            // func.length contains the number of arguments the function
+            // expects
+
+            const args = [];
+            for (let i = 0; i < func.length; i++) {
+                args.push(pop());
+            }
+
+            // log("func: ", func);
+            // log("args: ", args);
+
+            let ret = func.apply(this_arg, args);
+            log("got from native call: " + ret);
+            push(ret);
+        }
+    }
+
+    let o = {
+        call: (name) => {
+        currentCall = name;
+        if (variables.hasOwnProperty(name)) {
+            return exec(variables[name]);
+        }
+        return builtins[name]();
+    },
+        makeStore: (name) => {
+            let f = () => {
+                let value = pop();
+                // Literals stored in a variable are wrapped in a list
+                // in order to execute them in the call function above.
+                if (!checkType("array", value)) {
+                    value = [value];
+                }
+                variables[name] = value;
+            };
+
+            f.toString = () => {return "Store: '"+name+"'"};
+
+            return f;
+        }
+    }
+
+    return Object.assign(o, {"builtins": builtins});
+}
+
+var parse = function(code, ctx, _debugpos) {
+    let pos = 0; // points to the next character to be read
+    const EOF = -1;
+    let debugpos = _debugpos || {"offset" : 0};
+
+    let getColumn = () => {
+        return debugpos.offset + pos-1;
+    }
+
+    let parsingError = (msg) => {
+        return "Parsing error at "+(getColumn())+": " + msg;
     }
 
     let peek = () => {
@@ -105,7 +331,7 @@ var parse = function(code, _context) {
     };
 
     let isBuiltin = (s) => {
-        return /[a-zäöå\.+-/*%!?=<>t]/.test(s);
+        return /[a-zäöå\.+-/*%!?=<>_]/.test(s);
     }
 
     let isUserword = (s) => {
@@ -140,13 +366,17 @@ var parse = function(code, _context) {
             }
         }
 
-        let number = new NumberLiteral(getColumn(), digit);
-        return number;
+        return parseFloat(digit);
     }
 
-    let readWord = () => {
-        // All identifiers are single characters.
-        return new Word(getColumn(), getLast());
+    let readCall = () => {
+        let name = getLast();
+        let f = () => {
+            log("stub: calling word '" + name + "'");
+            ctx.call(name);
+        }
+        f.toString = ()=>{return "Call '"+name+"'";}
+        return f;
     }
 
     let readString = () => {
@@ -164,7 +394,7 @@ var parse = function(code, _context) {
                 if (esc in escapes) {
                     str += escapes[esc];
                 } else {
-                    throw scanningError("Invalid escape char: " + esc);
+                    throw parsingError("Invalid escape sequence: " + esc);
                 }
             } else if (c == "\"") {
                 break;
@@ -175,7 +405,7 @@ var parse = function(code, _context) {
             c = read();
         }
 
-        return new StringLiteral(getColumn(), str);
+        return str;
     }
 
     let skipWhitespace = () => {
@@ -184,38 +414,24 @@ var parse = function(code, _context) {
         }
     }
 
-    let readDefinition = () => {
-        skipWhitespace();
-        let userword = read();
-        let c = read();
-        let usercode = ""
-        while (c != ";") {
-            if (peek() == EOF) {
-                throw scanningError("Unexpected EOF when reading a definition.");
-            }
-            usercode += c;
-            c = read();
-        }
-
-        var tokens = parse(usercode, {
-            "desc" : "definition of "+userword,
-            "offset" : getColumn()});
-        return new Definition(getColumn(), userword, usercode, tokens);
+    let readStore = () => {
+        let variable = read();
+        return ctx.makeStore(variable);
     }
 
-    let readQuotation = () => {
+    let readList = () => {
         let col = getColumn();
-        let quot = "";
+        let inner = "";
         let parenDepth = 1;
 
         let c = read();
 
         while (parenDepth > 0) {
             if (c == EOF) {
-                throw scanningError("Unexpected EOF when reading a quotation.");
+                throw parsingError("Unexpected EOF when reading a quotation.");
             }
 
-            if (c == '"') {quot += '"' + readString().text }
+            if (c == '"') {inner += '"' + readString();}
             if (c == "(") {parenDepth++;}
             if (c == ")") {
                 parenDepth--;
@@ -224,11 +440,11 @@ var parse = function(code, _context) {
                 }
             }
 
-            quot += c;
+            inner += c;
             c = read();
         }
 
-        return new Quotation(getColumn(), col, quot);
+        return parse(inner, Object.assign(ctx, {"offset" : getColumn()}));
     }
 
     let tokens = [];
@@ -241,370 +457,79 @@ var parse = function(code, _context) {
             } else if (isDigit(c) || c == '-' && isDigit(peek())) {
                 tokens.push(readNumber());
             } else if (isUserword(c) || isBuiltin(c)) {
-                tokens.push(readWord());
+                tokens.push(readCall());
             } else if (c == ':') {
-                tokens.push(readDefinition());
+                tokens.push(readStore());
             } else if (c == '(') {
-                tokens.push(readQuotation());
+                tokens.push(readList());
             } else {
-                throw scanningError("Invalid character '" + c + "' at " + (getColumn()));
+                throw parsingError("Invalid character '" + c + "' at " + (getColumn()+1));
             }
         }
         c = read();
     }
 
+    // We want lists to be wrapped in parens when printed.
+    tokens.toString = () => {
+        return "("+Array.prototype.toString.apply(tokens)+")";
+    }
     return tokens;
 }
 
-class Value {
-    constructor(type, val, col) {
-        this.type = type;
-        this.val = val;
-        this.col = col;
-    }
-
-    shortType() {
-        let abbr = {
-            "string" : "s",
-            "bool" : "b",
-            "number" : "n",
-            "quotation" : "q"
-        };
-
-        if (this.type in abbr) {return abbr[this.type]};
-        return this.type;
-    }
-
-    toString() {
-        if (this.type == "quotation") {
-            return "q" + this.col;
-        }
-        return this.shortType() + ":" + this.val;
-        //return this.val;
-    }
-
-    // Returns a string that returns the exact same value when evaluated.
-    toLiteral() {
-        if (this.type == "string") {
-            return '"' + this.val + '"';
-        } else if (this.type == "bool") {
-            return this.val ? "1" : "0";
-        } else if (this.type == "number") {
-            return this.val;
-        } else if (this.type == "quotation") {
-            return '(' + this.val + ')';
-        }
-        return this.val;
-    }
-}
-
-
-let runtimeError = function(msg) {
-    return "runtimeError: " + msg;
-}
-
-
-let execute = function(prog, outputCallback, in_words, in_stack, in_indent) {
-    // The caller can pass in a stack and a dictionary context.
-    // They are used in quotation invocation.
-    let stack = in_stack || [];
-    let indent = in_indent || 0;
-
-    let pop = () => {
-        if (stack.length == 0) {
-            throw runtimeError("Stack underflow!");
-        }
-        return stack.pop();
-    }
-
-    let push = (a) => {
-        stack.push(a);
-    }
-
+let execute = function(prog, outputCallback, externals, words, stack, indent) {
     let output = outputCallback || ((obj) => {
         console.log(">> ", obj);
     })
 
-    let makenum = (v) => (new Value("number", v));
-    let makebool = (v) => (new Value("bool", v));
-    let type_assert = function(type, v) {
-        if (v.type != type){throw runtimeError("Got value of type " + v.type + " instead of " + type + "!")}
-    }
+    let pc = 0;
+    while (pc < prog.length) {
+        let value = prog[pc];
+        pc++;
 
-    let runQuotation = (src) => {
-        let new_prog = parse(src.val, {"offset" : src.col });
-        //log("  src: '" + src.val + "'");
-        //log("  compiled: ", new_prog);
-        execute(new_prog, outputCallback, words, stack, indent+1);
-    }
-
-    let map_list_index = (ind, the_list) => {
-        let new_ind = ind;
-        if (ind < 0) {
-            new_ind = the_list.length + ind;
+        const types = {
+            "get": function(prop) {
+                return Object.prototype.toString.call(prop);
+            },
+            "object": "[object Object]",
+            "array": "[object Array]",
+            "string": "[object String]",
+            "boolean": "[object Boolean]",
+            "number": "[object Number]",
+            "function": "[object Function]"
         }
 
-        if (new_ind >= the_list.length || new_ind < 0) {
-            throw runtimeError("Trying to read index " + ind + " from list of size " + the_list.length + "!");
-        }
+        /*switch (types.get(value)) {
+            case types.array:
+                stack.push(value);
+            case types.string:
+                stack.push(value);
+            case types.number:
+                stack.push(value);
+            case types.number:
+                stack.push(value);
+        }*/
 
-        return new_ind;
-    };
-
-    let builtinWords = {
-        "d" : () => {
-            let a = pop();
-            push(a);
-            push(a);},
-        "x" : () => {
-            pop();},
-        "." : () => {output(pop().val)},
-        "s" : () => {
-            let a = pop();
-            let b = pop();
-            stack.push(a);
-            stack.push(b);
-        },
-        "r" : () => {
-            let c = pop();
-            let b = pop();
-            let a = pop();
-            push(c);
-            push(a);
-            push(b);
-        },
-        "+" : () => {
-            let a = pop();
-            let b = pop();
-            type_assert("number", a);
-            type_assert("number", b);
-            stack.push(makenum(b.val + a.val));},
-        "-" : () => {
-            let a = pop();
-            let b = pop();
-            type_assert("number", a);
-            type_assert("number", b);
-            stack.push(makenum(b.val - a.val));},
-        "/" : () => {
-            let a = pop();
-            let b = pop();
-            type_assert("number", a);
-            type_assert("number", b);
-            stack.push(makenum(b.val / a.val));},
-        "%" : () => {
-            let a = pop();
-            let b = pop();
-            type_assert("number", a);
-            type_assert("number", b);
-            stack.push(makenum(b.val % a.val));},
-        "*" : () => {
-            let a = pop();
-            let b = pop();
-            type_assert("number", a);
-            type_assert("number", b);
-            push(makenum(a.val * b.val))},
-        "=" : () => {
-            let a = pop();
-            let b = pop();
-            // allow true == 1.0 --> true
-            stack.push(makebool(a.val == b.val));},
-        "<" : () => {
-            let a = pop();
-            let b = pop();
-            stack.push(makebool(b.val < a.val));},
-        ">" : () => {
-            let a = pop();
-            let b = pop();
-            stack.push(makebool(b.val > a.val));},
-        "!" : () => {
-            let a = pop();
-            if (a.val) {
-                push(makebool(false));
-            } else {
-                push(makebool(true));
-            }},
-        "?" : () => {
-            let else_quot = pop();
-            let then_quot = pop();
-            let if_quot = pop();
-            type_assert("quotation", if_quot);
-            type_assert("quotation", then_quot);
-            type_assert("quotation", else_quot);
-            runQuotation(if_quot);
-            let result = pop();
-            type_assert("bool", result);
-            if (result.val) {
-                runQuotation(then_quot);
-            } else {
-                runQuotation(else_quot);
-            }
-        },
-        "t" : () => {
-            let src = pop();
-            let amt = pop();
-            type_assert("number", amt);
-            type_assert("quotation", src);
-            let new_prog = parse(src.val, {"offset" : src.col });
-            let times = amt.val;
-            while (times > 0) {
-                times--;
-                execute(new_prog, outputCallback, words, stack, indent+1);
-            }
-        },
-        "i" : () => {
-            let src = pop();
-            type_assert("quotation", src);
-            runQuotation(src);
-        },
-        "å" : () => {
-            output(stack);
-        },
-        "g" : () => {
-            let index = pop();
-            let list = pop();
-            type_assert("number", index);
-            type_assert("quotation", list);
-
-            let ind = Math.floor(index.val);
-            let list_tokens = parse(list.val, {"offset" : list.col });
-
-            if (ind < 0 || ind >= list_tokens.length) {
-                throw runtimeError("Index " + ind + " out of range.");
-            }
-
-            // We extract an item from the list and return it wrapped in a
-            // quotation. If the programmer wants the underlying value the
-            // quotation can be just evaluated.
-
-            let item = list_tokens[ind];
-            //console.log(list);
-            //console.log(list_tokens);
-            //console.log("index", ind);
-            //console.log(item);
-
-            push(new Value("quotation", item.lexeme, item.col));
-        },
-        "c" : () => {
-            let separator = pop();
-            let str = pop();
-            type_assert("string", separator);
-            type_assert("string", str);
-            // log(separator);
-            // log(str);
-            let list = str.val.split(separator.val);
-            // log(list);
-            let stringified_list = (list.map((x) => {return '"' + x + '"';})).join(" ");
-            // log(stringified_list);
-            // TODO str.col is incorrect, should be actually position of "c"
-            push(new Value("quotation", stringified_list, str.col));
-        },
-        "m" : () => {
-            let func = pop();
-            let list = pop();
-            type_assert("quotation", func);
-            type_assert("quotation", list);
-
-            let list_tokens = parse(list.val, {"offset" : list.col });
-            let func_tokens = parse(func.val, {"offset" : func.col });
-
-            for (let i = 0; i < list_tokens.length; i++) {
-                // Read the array slot value from index i using the built-in
-                // word g, and push it up on the stack ready for the 'func'
-                // quotation to consume.
-                let token = list_tokens[i];
-                let new_prog = parse(i + "g", {"offset" : token.col });
-                push(list);
-                execute(new_prog, outputCallback, words, stack, indent);
-                execute(func_tokens, outputCallback, words, stack, indent+1);
-            }
-        },
-        "w" : () => {
-            let number_val = pop();
-            type_assert("number", number_val);
-            let count = number_val.val;
-
-            if (count < 0) {
-                throw runtimeError("Trying to read " + count + " values from the stack.");
-            }
-
-            let literals = [];
-
-            for (let i = 0; i < count; i++) {
-                let value = pop();
-                literals.push(value.toLiteral());
-            }
-
-            let literal_string = '(' + literals.join(" ") + ')';
-            // console.log("literal string: " + literal_string);
-
-            // Push the collected values to the stack as a quotation.
-
-            // TODO numberval_col is incorrect, should be position of w
-            let program = parse(literal_string, {"offset" : number_val.col });
-            execute(program, outputCallback, words, stack, indent);
-        },
-        "u" : () => {
-            let list = pop();
-            type_assert("quotation", list);
-            let list_tokens = parse(list.val, {"offset" : list.col });
-            let literals = [];
-
-            for (let token of list_tokens) {
-                literals.push(token.lexeme);
-            }
-
-            let literal_string = literals.join(" ");
-            console.log("unwrap literal string: " + literal_string);
-
-            // Push the collected values to the stack individually.
-            // TODO list.col is incorrect, should be position of w
-            let program = parse(literal_string, {"offset" : list.col });
-            execute(program, outputCallback, words, stack, indent);
-        },
-    };
-
-    let words = in_words || {};
-    Object.assign(words, builtinWords);
-
-    for (let token of prog) {
-        log(" ".repeat(indent) + token.text+ "\t" + "[" + stack + "]");
-
-        //log("--> "+inspect(token) + "\nstack: ", util.inspect(stack));
-        if (token instanceof StringLiteral) {
-            stack.push(new Value("string", token.text, token.col));
-        } else if (token instanceof Quotation) {
-            stack.push(new Value("quotation", token.text, token.col));
-        } else if (token instanceof NumberLiteral) {
-            stack.push(new Value("number", parseFloat(token.text), token.col));
-        } else if (token instanceof Word) {
-            if (!(token.text in words)) {
-                throw runtimeError("Non-existent word at "+token.col +": " + util.inspect(token));
-            }
-
-            words[token.text](stack);
-
-        } else if (token instanceof Definition) {
-            if (token.name in builtinWords) {
-                throw runtimeError("Trying to redefine builtin word at "+token.col+": " + token.name);
-            }
-
-            // The stack needs to get passed in as an argument since the variable 'stack'
-            // would otherwise point to an object instance created on an earlier execute()
-            // invocation. This is the case when running inside REPL.
-            words[token.name] = (in_stack) => {
-                execute(token.tokens, outputCallback, words, in_stack);
-            };
-
+        if (types.get(value) === types.function) {
+            log("running: " + value);
+            value();
         } else {
-            throw runtimeError("Invalid token at "+token.col+": " + util.inspect(token));
+            stack.push(value);
         }
     }
-
-    return stack
 }
 
-let run = function(src, outputCallback, logCallback, words, stack) {
-    return execute(parse(src), outputCallback, words, stack);
+let run = function(code, cb, extfuncs, variables, stack) {
+    log("got code: " + code);
+
+    let ctx = makeRunContext(stack, variables, cb, extfuncs, (prog)=>
+        {execute(prog, cb, extfuncs, variables, stack)}
+    );
+    let program = parse(code, ctx);
+    log("program: " + program);
+
+    execute(program, cb, extfuncs, variables, stack);
+
+    return stack;
 }
 
 exports.parse = parse;

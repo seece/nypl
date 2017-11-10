@@ -1,72 +1,57 @@
-# The Nypl Language Guide v0.2
+# The Nypl Language Guide v0.4
 *Designed for Simo™*
 
-A Forth-like, almost concatenative language with functional features, inspired by Factor, [Joy](http://www.kevinalbrecht.com/code/joy-mirror/j01tut.html), lisp, [IBNIZ](http://pelulamu.net/ibniz/) and Kx Systems' Q language.
-
-[Try Nypl online!](http://seece.github.io/nypl/)
+A Forth-like, almost concatenative language with functional features, inspired by [Factor](https://factorcode.org/), JavaScript, Lisp, [IBNIZ](http://pelulamu.net/ibniz/) and APL.
 
 ## Examples
 
 To compute sum of two numbers, push the literals `1` and `2` on the stack and then call the `+` word to sum them. Finally `.` word is executed to print the top of the stack.
 
-    > 1 2 + .
-    3
+All REPL output is preceded by `>>`.
 
-To calculate the product of two sums 5+6 and 1 + 2:
-
-    > 1 2 + 5 6 + * .
-    90
+    1 2 + .
+    >> 3
 
 
-A terrible tail recursion for loop that prints the numbers 2, 1, 0:
+To calculate the product of two sums 5 + 6 and 1 + 2:
 
-    3(s-1+d. d(0=)("done".)(sdi)?)di
+    1 2 + 5 6 + * .
+    >> 34
 
-Stack state during the computation. `f` is the quotation `(s-1+d. d(0=)("done".)(sdi)?)`. `g`, `h` and `k` are also quotations. On the right hand side the command that has executed is shown.
+What happened here was that first numbers `1` and `2` were pushed on the stack, and `+` was called:
 
-    STACK          COMMANDS
-    3           -- 3
-    3f          -- f
-    3ff         -- d
-    3f          -- i
-    f3          -- s
-    f2          -- -1 + # decrease by one
-    f2          -- d. # prints the number
-    f22         -- d
-    f22ghk      -- (0=)("done".)(sdi) # condition, if and else quotations for ? combinator
-    f22         -- ?
+    _________                   _____
+    | 1 | 2 | -> call word + -> | 3 |
+    ---------                   -----
 
-    f20         -- 0= # does not equal to zero, push false = 0
-    f2          -- ? pops off the result and checks it
-    2f          -- s # the "else" part of the ? combinator was taken
-    2ff         -- d
-    2f          -- i # recursion back to quotation f
+The sum of numbers `5` and `6` were pushed to the stack and added too:
 
-    ... recurse until number is 0
+    _____________                     __________
+    | 3 | 5 | 6 |  -> call word + ->  | 3 | 11 |
+    -------------                     ----------
 
-    1f          -- # the last iteration of recursion
-    f0          -- s-1+
-    f0          -- d. # print 0
-    f00ghk      -- push the arguments for ?
-    f00         -- ?
-    f01         -- 0=
-    f0"done"    -- push string "done"
-    f0          -- . # print string "done"
+Then `*` was invoked. It popped off the two topmost items `3` and `11` off the stack and pushed in the product of them back in:
 
-In this case two values `f` and `0` were left on stack after exit. These could've been removed with `xx`. There's also an easier way to do loops, see [Looping](#looping).
+     __________                   ______
+     | 3 | 11 | -> call word * -> | 33 |
+     ----------                   ------
 
+## Execution model
 
 There's an explicit parameter stack that the programmer uses to call *words* - basically subroutines - and an implicit call stack provided by the implementation.
+
+### Defining custom words
 
 Define a word `S` that duplicates (d) and then multiply the two values
 so it's square(x) -> x^2. `;` ends the word definition
 
-    :Sd*;
+    (d*):S
 
-I can be then called like thw following:
+I can be then called like this:
 
-    > 5 S
-    25
+    5 S
+    >> 25
+
 
 ## Stack manipulation
 
@@ -99,8 +84,8 @@ Where `input` is the stack state before calling the word and `output` is the end
 
 ## Word definitions
 
-    : = begin a new word definition
-    ; = end a word definition
+    CODE :X = defines a custom word X that will execute CODE when
+               encountered during execution
 
 User defined words must be a single capital letter. All builtin words are one character long, too.
 
@@ -108,21 +93,30 @@ Checks if given number is even.
 Define word `E` as the following: get the result of `n mod 2`, check if 0:
 
     "(n -- is_even)"x
-    :E2%0=;
+    (2%0=):E
 
 Now the user defined word `E` can be used the following way:
 
-    > 5E
-    b:false
-    > 6E
-    b:true
+    5E
+    >> false
+    6E
+    >> true
 
-### Whitespace
+### Emulating variables
+
+To emulate variables with custom words you can simply use a code list that evaluates to the value:
+
+    (3):X
+    X
+    >> 3
+
+
+## Whitespace
 
 Whitespace can be used to separate immediates and words, but isn't always necessary.
 For example `1 2 + 3 *` and `1 2+3*` are equivalent.
 
-### Comments
+## Comments
 
 There is no special syntax for comments but one way to add annotations to code is to add string literals that are dropped off the stack immediately afterwards:
 
@@ -130,33 +124,28 @@ There is no special syntax for comments but one way to add annotations to code i
 
 ## Data types
 
-### Real numbers
-All numbers are double precision floating point numbers.
-
-### Boolean values
-
-A number of value `0` is considered falsy and `1` true.
+Nypl uses the JavaScript data types and comparison rules.
 
 ### Strings
 
-Strings are written in double quotes. Supported escape characters are the following: `\"`, `\n`, `\t`.
+Strings are written in double quotes. Supported escape sequences are the following: `\"`, `\n`, `\t`.
 
 
-    > "oot aika \"ihana\"".
-    oot aika "ihana"
+    "oot aika \"ihana\"".
+    >> oot aika "ihana"
 
 
 ### Inline code
 
 *Quotations* are fragments of code that can be passed around and executed. Simply wrap some code in parentheses.
 
-This example code pushes `3` on the stack, pushes the quotation `(d*)` on the stack, pops the quotation and executes it via the `i` word and then prints the result.
+This example code pushes `3` on the stack, pushes the code list `(d*)` on the stack, pops the code list and executes it via the `i` word and then prints the result.
 
-    > 3 (d*) i.
-    9
+    3 (d*) i.
+    >> 9
 
 ### Combinators
-Words that take in quotations (code) as inputs are called combinators.
+Words that take in code lists as inputs are called combinators. Basically just higher-order functions.
 
 ## Flow control
 
@@ -166,14 +155,15 @@ The `?` combinator can be used for conditional execution of code.
 
 The following code returns 6, since 4 > 3. Otherwise it would've returned 0.
 
-    > 4(d3>)(2+)(x0)?
+    4(d3>)(2+)(x0)?
+    >> 6
 
 
 ### Looping
 
-The times, or `t` combinator can be used to repeat a quotation.
+The times, or `t` combinator can be used to repeatedly execute a code list.
 
-    t   = times (a b -- ) quotation b gets repeated 'a' times
+    t   = times (a b -- ) code list b gets repeated 'a' times
 
 Example: print `hi` five times:
 
@@ -181,48 +171,22 @@ Example: print `hi` five times:
 
 
 ### Lists
-Quotations also function as lists. Individual list items can be extracted with `g`.
 
-    g = get item ( list index -- item )
+Lists can be executed as code.
 
-The item is always returned as a quotation. To get the underlying value it needs to be evaluated with `.`:
+TODO: expand
 
-    > ("a" "b" "c") 1 g
-    q6
-    > ("a" "b" "c") 1 g i
-    b
 
-Strings can be split to quotations using the cut `c` word:
+### Interfacing with JavaScript
 
-    c = cut string ( string separator -- list )
+TODO
 
-    > "hello" "" c 1gi
-    e
-
-Map applies a quotation to each element of a list.
-The `func` quotation receives a single value from the list.
-In order to use the value it needs to be first evaluated with the `i` word.
-
-    m = map ( list func -- new_list )
-
-Squaring every element of a list can be done with a quotation:
-
-    > (1 2 3) (id*) m
-    1 4 9
-
-You can also pick N elements from the stack and wrap them into a quotation with the `w` word:
-
-    w = wrap ( N -- list_with_N_elements )
-
-    >"first" "second" "fourth?" 3 w
-    q27
-
-A list with N elements can be unwrapped and pushed back to the stack with the `u` word:
-
-    u = unwrap ( list --- item_1 item_2 ... item_N )
-
-    > (1 2 3) u
-    1 2 3
+* update documentation
+* array object toString decoration
+    * otherwise printing will miss parens
+* native objects
+* unified element access
+* wrap & unwrap
 
 ## Lists
 
