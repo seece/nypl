@@ -1,29 +1,1550 @@
 (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
-if (typeof Object.create === 'function') {
-  // implementation from standard node.js 'util' module
-  module.exports = function inherits(ctor, superCtor) {
-    ctor.super_ = superCtor
-    ctor.prototype = Object.create(superCtor.prototype, {
-      constructor: {
-        value: ctor,
-        enumerable: false,
-        writable: true,
-        configurable: true
-      }
-    });
-  };
-} else {
-  // old school shim for old browsers
-  module.exports = function inherits(ctor, superCtor) {
-    ctor.super_ = superCtor
-    var TempCtor = function () {}
-    TempCtor.prototype = superCtor.prototype
-    ctor.prototype = new TempCtor()
-    ctor.prototype.constructor = ctor
-  }
+"use strict";
+var util = require("util");
+var fuse = require("fuse.js");
+var exports = module.exports = {};
+
+var log = console.log;
+
+let runtimeError = function(msg) {
+    console.trace(msg);
+    return "runtimeError: " + msg;
 }
 
-},{}],2:[function(require,module,exports){
+let checkType = function(type, obj) {
+    let actual = Object.prototype.toString.call(obj).toLowerCase();
+    return actual === '[object '+type+']';
+}
+
+let assertType = function(type, obj) {
+    let actual = Object.prototype.toString.call(obj).toLowerCase();
+    if (!checkType(type, obj)){throw runtimeError("Got value of type " + actual + " instead of " + type + ": " + obj)}
+}
+
+var makeRunContext = function(stack, variables, outputCallback, externals, exec) {
+    let currentCall = "";
+    let pop = () => {
+        if (stack.length == 0) {
+            throw runtimeError("Stack underflow at '"+currentCall+"'!");
+        }
+        return stack.pop();
+    }
+
+    let push = (a) => {
+        stack.push(a);
+    }
+
+    let output = outputCallback || ((obj) => {
+        console.log(">> ", obj);
+    });
+
+    let builtins = {
+        // Stack manipulation commands
+
+        // dup
+        "d" : () => {
+            let a = pop();
+            push(a);
+            push(a);},
+        // drop
+        "x" : () => {
+            pop();},
+        // print
+        "." : () => {output(pop())},
+        // swap
+        "s" : () => {
+            let a = pop();
+            let b = pop();
+            stack.push(a);
+            stack.push(b);
+        },
+        // rot
+        "r" : () => {
+            let c = pop();
+            let b = pop();
+            let a = pop();
+            push(c);
+            push(a);
+            push(b);
+        },
+
+        // Arithmetic commands
+
+        "+" : () => {
+            let a = pop();
+            let b = pop();
+            stack.push(a+b);},
+        "-" : () => {
+            let a = pop();
+            let b = pop();
+            assertType("number", a);
+            assertType("number", b);
+            stack.push(b - a);},
+        "/" : () => {
+            let a = pop();
+            let b = pop();
+            assertType("number", a);
+            assertType("number", b);
+            stack.push(b / a);},
+        "%" : () => {
+            let a = pop();
+            let b = pop();
+            assertType("number", a);
+            assertType("number", b);
+            stack.push(b % a);},
+        "*" : () => {
+            let a = pop();
+            let b = pop();
+            assertType("number", a);
+            assertType("number", b);
+            push(a*b)},
+        "=" : () => {
+            let a = pop();
+            let b = pop();
+            stack.push(a == b);},
+        "<" : () => {
+            let a = pop();
+            let b = pop();
+            stack.push(b < a);},
+        ">" : () => {
+            let a = pop();
+            let b = pop();
+            stack.push(b > a);},
+        "!" : () => {
+            let a = pop();
+            push(!a);},
+
+        // Control flow and list operations
+
+        // conditional
+        "?" : () => {
+            let else_func = pop();
+            let then_func = pop();
+            let if_func = pop();
+            assertType("array", if_func);
+            assertType("array", then_func);
+            assertType("array", else_func);
+            exec(if_func);
+            let result = pop();
+            if (result) {
+                exec(then_func);
+            } else {
+                exec(else_func);
+            }
+        },
+        // times
+        "t" : () => {
+            let src = pop();
+            let amt = pop();
+            assertType("number", amt);
+            assertType("array", src);
+            let times = amt.val;
+            while (times > 0) {
+                times--;
+                exec(new_prog);
+            }
+        },
+        // code list invocation
+        "i" : () => {
+            let src = pop();
+            assertType("array", src);
+            exec(src);
+        },
+        // stack debug
+        "å" : () => {
+            output(stack);
+        },
+        // get
+        "g" : () => {
+            const index = pop();
+            const list = pop();
+            push(list);
+            if (!variables.hasOwnProperty(index)) {
+                throw runtimeError("Object has no index '"+index+"'!");
+            }
+            const value = list[index];
+            push(value);
+        },
+        // wrap elements off the stack to a list
+        "w" : () => {
+            let count = pop();
+            assertType("number", count);
+
+            if (count < 0) {
+                throw runtimeError("Trying to read " + count + " values from the stack.");
+            }
+
+            let values = [];
+
+            for (let i = 0; i < count; i++) {
+                values.push(pop());
+            }
+
+            values.reverse();
+            push(values);
+        },
+        // unwrap or "spread" the list onto the stack
+        "u" : () => {
+            let list = pop();
+            assertType("array", list);
+
+            for (let i = 0; i < list.length; i++) {
+                push(list[i]);
+            }
+        },
+        // filter
+        "f" : () => {
+            let predicate = pop();
+            assertType("array", predicate);
+            let list = pop();
+            assertType("array", list);
+            let out = []
+
+            for (let i = 0; i < list.length; i++) {
+                push(list[i]);
+                exec(predicate);
+                let result = pop();
+                if (result) {
+                    out.push(list[i]);
+                }
+            }
+
+            push(out);
+        },
+
+        // JavaScript interop commands
+
+        // run an external command
+        // currently only a single argument is supported
+        "e" : () => {
+            const funcname = pop();
+            assertType("string", funcname);
+            const arg = pop();
+
+            try {
+                let res = externals[funcname](arg);
+                push(res);
+            } catch (e) {
+                log(e);
+                log("External call failed: " + funcname+ " with " + arg);
+            }
+        },
+        // execute js code
+        "_" : () => {
+            const code = pop();
+            assertType("string", code);
+            let this_arg = undefined;
+            let func = undefined;
+
+            try {
+                func = eval(code);
+            } catch (e) {
+                log("'" + code+ "' eval failed. Looking on 'this'", this_arg)
+                this_arg = pop();
+                func = this_arg[code];
+            }
+
+            // func.length contains the number of arguments the function
+            // expects
+
+            const args = [];
+            for (let i = 0; i < func.length; i++) {
+                args.push(pop());
+            }
+
+            // log("func: ", func);
+            // log("args: ", args);
+
+            let ret = func.apply(this_arg, args);
+            log("got from native call: " + ret);
+            push(ret);
+        }
+    }
+
+    let o = {
+        call: (name) => {
+        currentCall = name;
+        if (variables.hasOwnProperty(name)) {
+            return exec(variables[name]);
+        }
+        return builtins[name]();
+    },
+        makeStore: (name) => {
+            let f = () => {
+                let value = pop();
+                // Literals stored in a variable are wrapped in a list
+                // in order to execute them in the call function above.
+                if (!checkType("array", value)) {
+                    value = [value];
+                }
+                variables[name] = value;
+            };
+
+            f.toString = () => {return "Store: '"+name+"'"};
+
+            return f;
+        }
+    }
+
+    return Object.assign(o, {"builtins": builtins});
+}
+
+var parse = function(code, ctx, _debugpos) {
+    let pos = 0; // points to the next character to be read
+    const EOF = -1;
+    let debugpos = _debugpos || {"offset" : 0};
+
+    let getColumn = () => {
+        return debugpos.offset + pos-1;
+    }
+
+    let parsingError = (msg) => {
+        return "Parsing error at "+(getColumn())+": " + msg;
+    }
+
+    let peek = () => {
+        if (pos >= code.length) {
+            return EOF;
+        }
+
+        let c = code[pos];
+        return c;
+    };
+
+    let getLast = () => {
+        if (pos > code.length) {
+            return EOF;
+        }
+
+        return code[pos-1];
+    }
+
+    let read = () => {
+        if (pos >= code.length) {
+            return EOF;
+        }
+        let c = code[pos];
+        pos++;
+        return c;
+    }
+
+    let program = () => {
+    };
+
+    let isBuiltin = (s) => {
+        return /[a-zäöå\.+-/*%!?=<>_]/.test(s);
+    }
+
+    let isUserword = (s) => {
+        return /[A-ZÄÖÅ]/.test(s);
+    }
+
+    let isWhitespace = (s) => {
+        return /\s/.test(s);
+    }
+
+    let isDigit = (s) => {
+        if (s == EOF) { return false; } // EOF = -1 casts to "-1" which matches
+        return /\d/.test(s);
+    }
+
+    let in_string = false;
+    let c = read();
+    let current = "";
+
+    // We assume isDigit(read()) = true
+    let readNumber = () => {
+        let digit = getLast();
+
+        while (isDigit(peek())) {
+            digit += read();
+        }
+
+        if (peek() == ".") {
+            digit += read();
+            while (isDigit(peek())) {
+                digit += read();
+            }
+        }
+
+        return parseFloat(digit);
+    }
+
+    let readCall = () => {
+        let name = getLast();
+        let f = () => {
+            log("stub: calling word '" + name + "'");
+            ctx.call(name);
+        }
+        f.toString = ()=>{return "Call '"+name+"'";}
+        return f;
+    }
+
+    let readString = () => {
+        let str = "";
+
+        let c = read();
+        while (c != EOF) {
+            if (c == "\\") {
+                let esc = read();
+                let escapes = {
+                    "n" : "\n",
+                    "t" : "\t",
+                    '"' : '"',
+                }
+                if (esc in escapes) {
+                    str += escapes[esc];
+                } else {
+                    throw parsingError("Invalid escape sequence: " + esc);
+                }
+            } else if (c == "\"") {
+                break;
+            } else {
+                str += c;
+            }
+
+            c = read();
+        }
+
+        return str;
+    }
+
+    let skipWhitespace = () => {
+        while (isWhitespace(peek()) && peek() != EOF) {
+            read();
+        }
+    }
+
+    let readStore = () => {
+        let variable = read();
+        return ctx.makeStore(variable);
+    }
+
+    let readList = () => {
+        let col = getColumn();
+        let inner = "";
+        let parenDepth = 1;
+
+        let c = read();
+
+        while (parenDepth > 0) {
+            if (c == EOF) {
+                throw parsingError("Unexpected EOF when reading a quotation.");
+            }
+
+            if (c == '"') {inner += '"' + readString();}
+            if (c == "(") {parenDepth++;}
+            if (c == ")") {
+                parenDepth--;
+                if (parenDepth == 0) {
+                    break;
+                }
+            }
+
+            inner += c;
+            c = read();
+        }
+
+        return parse(inner, Object.assign(ctx, {"offset" : getColumn()}));
+    }
+
+    let tokens = [];
+
+    while (c != EOF) {
+        //log("c:'" + c + "'");
+        if (!isWhitespace(c)) {
+            if (c == '"') {
+                tokens.push(readString());
+            } else if (isDigit(c) || c == '-' && isDigit(peek())) {
+                tokens.push(readNumber());
+            } else if (isUserword(c) || isBuiltin(c)) {
+                tokens.push(readCall());
+            } else if (c == ':') {
+                tokens.push(readStore());
+            } else if (c == '(') {
+                tokens.push(readList());
+            } else {
+                throw parsingError("Invalid character '" + c + "' at " + (getColumn()+1));
+            }
+        }
+        c = read();
+    }
+
+    // We want lists to be wrapped in parens when printed.
+    tokens.toString = () => {
+        return "("+Array.prototype.toString.apply(tokens)+")";
+    }
+    return tokens;
+}
+
+let execute = function(prog, outputCallback, externals, words, stack, indent) {
+    let output = outputCallback || ((obj) => {
+        console.log(">> ", obj);
+    })
+
+    let pc = 0;
+    while (pc < prog.length) {
+        let value = prog[pc];
+        pc++;
+
+        const types = {
+            "get": function(prop) {
+                return Object.prototype.toString.call(prop);
+            },
+            "object": "[object Object]",
+            "array": "[object Array]",
+            "string": "[object String]",
+            "boolean": "[object Boolean]",
+            "number": "[object Number]",
+            "function": "[object Function]"
+        }
+
+        /*switch (types.get(value)) {
+            case types.array:
+                stack.push(value);
+            case types.string:
+                stack.push(value);
+            case types.number:
+                stack.push(value);
+            case types.number:
+                stack.push(value);
+        }*/
+
+        if (types.get(value) === types.function) {
+            log("running: " + value);
+            value();
+        } else {
+            stack.push(value);
+        }
+    }
+}
+
+let run = function(code, cb, extfuncs, variables, stack) {
+    log("got code: " + code);
+
+    let ctx = makeRunContext(stack, variables, cb, extfuncs, (prog)=>
+        {execute(prog, cb, extfuncs, variables, stack)}
+    );
+    let program = parse(code, ctx);
+    log("program: " + program);
+
+    execute(program, cb, extfuncs, variables, stack);
+
+    return stack;
+}
+
+exports.parse = parse;
+exports.execute = execute;
+exports.run = run;
+
+
+},{"fuse.js":2,"util":7}],2:[function(require,module,exports){
+/*!
+ * Fuse.js v3.2.0 - Lightweight fuzzy-search (http://fusejs.io)
+ * 
+ * Copyright (c) 2012-2017 Kirollos Risk (http://kiro.me)
+ * All Rights Reserved. Apache Software License 2.0
+ * 
+ * http://www.apache.org/licenses/LICENSE-2.0
+ */
+(function webpackUniversalModuleDefinition(root, factory) {
+	if(typeof exports === 'object' && typeof module === 'object')
+		module.exports = factory();
+	else if(typeof define === 'function' && define.amd)
+		define("Fuse", [], factory);
+	else if(typeof exports === 'object')
+		exports["Fuse"] = factory();
+	else
+		root["Fuse"] = factory();
+})(this, function() {
+return /******/ (function(modules) { // webpackBootstrap
+/******/ 	// The module cache
+/******/ 	var installedModules = {};
+/******/
+/******/ 	// The require function
+/******/ 	function __webpack_require__(moduleId) {
+/******/
+/******/ 		// Check if module is in cache
+/******/ 		if(installedModules[moduleId]) {
+/******/ 			return installedModules[moduleId].exports;
+/******/ 		}
+/******/ 		// Create a new module (and put it into the cache)
+/******/ 		var module = installedModules[moduleId] = {
+/******/ 			i: moduleId,
+/******/ 			l: false,
+/******/ 			exports: {}
+/******/ 		};
+/******/
+/******/ 		// Execute the module function
+/******/ 		modules[moduleId].call(module.exports, module, module.exports, __webpack_require__);
+/******/
+/******/ 		// Flag the module as loaded
+/******/ 		module.l = true;
+/******/
+/******/ 		// Return the exports of the module
+/******/ 		return module.exports;
+/******/ 	}
+/******/
+/******/
+/******/ 	// expose the modules object (__webpack_modules__)
+/******/ 	__webpack_require__.m = modules;
+/******/
+/******/ 	// expose the module cache
+/******/ 	__webpack_require__.c = installedModules;
+/******/
+/******/ 	// identity function for calling harmony imports with the correct context
+/******/ 	__webpack_require__.i = function(value) { return value; };
+/******/
+/******/ 	// define getter function for harmony exports
+/******/ 	__webpack_require__.d = function(exports, name, getter) {
+/******/ 		if(!__webpack_require__.o(exports, name)) {
+/******/ 			Object.defineProperty(exports, name, {
+/******/ 				configurable: false,
+/******/ 				enumerable: true,
+/******/ 				get: getter
+/******/ 			});
+/******/ 		}
+/******/ 	};
+/******/
+/******/ 	// getDefaultExport function for compatibility with non-harmony modules
+/******/ 	__webpack_require__.n = function(module) {
+/******/ 		var getter = module && module.__esModule ?
+/******/ 			function getDefault() { return module['default']; } :
+/******/ 			function getModuleExports() { return module; };
+/******/ 		__webpack_require__.d(getter, 'a', getter);
+/******/ 		return getter;
+/******/ 	};
+/******/
+/******/ 	// Object.prototype.hasOwnProperty.call
+/******/ 	__webpack_require__.o = function(object, property) { return Object.prototype.hasOwnProperty.call(object, property); };
+/******/
+/******/ 	// __webpack_public_path__
+/******/ 	__webpack_require__.p = "";
+/******/
+/******/ 	// Load entry module and return exports
+/******/ 	return __webpack_require__(__webpack_require__.s = 8);
+/******/ })
+/************************************************************************/
+/******/ ([
+/* 0 */
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+module.exports = function (obj) {
+  return Object.prototype.toString.call(obj) === '[object Array]';
+};
+
+/***/ }),
+/* 1 */
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+var bitapRegexSearch = __webpack_require__(5);
+var bitapSearch = __webpack_require__(7);
+var patternAlphabet = __webpack_require__(4);
+
+var Bitap = function () {
+  function Bitap(pattern, _ref) {
+    var _ref$location = _ref.location,
+        location = _ref$location === undefined ? 0 : _ref$location,
+        _ref$distance = _ref.distance,
+        distance = _ref$distance === undefined ? 100 : _ref$distance,
+        _ref$threshold = _ref.threshold,
+        threshold = _ref$threshold === undefined ? 0.6 : _ref$threshold,
+        _ref$maxPatternLength = _ref.maxPatternLength,
+        maxPatternLength = _ref$maxPatternLength === undefined ? 32 : _ref$maxPatternLength,
+        _ref$isCaseSensitive = _ref.isCaseSensitive,
+        isCaseSensitive = _ref$isCaseSensitive === undefined ? false : _ref$isCaseSensitive,
+        _ref$tokenSeparator = _ref.tokenSeparator,
+        tokenSeparator = _ref$tokenSeparator === undefined ? / +/g : _ref$tokenSeparator,
+        _ref$findAllMatches = _ref.findAllMatches,
+        findAllMatches = _ref$findAllMatches === undefined ? false : _ref$findAllMatches,
+        _ref$minMatchCharLeng = _ref.minMatchCharLength,
+        minMatchCharLength = _ref$minMatchCharLeng === undefined ? 1 : _ref$minMatchCharLeng;
+
+    _classCallCheck(this, Bitap);
+
+    this.options = {
+      location: location,
+      distance: distance,
+      threshold: threshold,
+      maxPatternLength: maxPatternLength,
+      isCaseSensitive: isCaseSensitive,
+      tokenSeparator: tokenSeparator,
+      findAllMatches: findAllMatches,
+      minMatchCharLength: minMatchCharLength
+    };
+
+    this.pattern = this.options.isCaseSensitive ? pattern : pattern.toLowerCase();
+
+    if (this.pattern.length <= maxPatternLength) {
+      this.patternAlphabet = patternAlphabet(this.pattern);
+    }
+  }
+
+  _createClass(Bitap, [{
+    key: 'search',
+    value: function search(text) {
+      if (!this.options.isCaseSensitive) {
+        text = text.toLowerCase();
+      }
+
+      // Exact match
+      if (this.pattern === text) {
+        return {
+          isMatch: true,
+          score: 0,
+          matchedIndices: [[0, text.length - 1]]
+        };
+      }
+
+      // When pattern length is greater than the machine word length, just do a a regex comparison
+      var _options = this.options,
+          maxPatternLength = _options.maxPatternLength,
+          tokenSeparator = _options.tokenSeparator;
+
+      if (this.pattern.length > maxPatternLength) {
+        return bitapRegexSearch(text, this.pattern, tokenSeparator);
+      }
+
+      // Otherwise, use Bitap algorithm
+      var _options2 = this.options,
+          location = _options2.location,
+          distance = _options2.distance,
+          threshold = _options2.threshold,
+          findAllMatches = _options2.findAllMatches,
+          minMatchCharLength = _options2.minMatchCharLength;
+
+      return bitapSearch(text, this.pattern, this.patternAlphabet, {
+        location: location,
+        distance: distance,
+        threshold: threshold,
+        findAllMatches: findAllMatches,
+        minMatchCharLength: minMatchCharLength
+      });
+    }
+  }]);
+
+  return Bitap;
+}();
+
+// let x = new Bitap("od mn war", {})
+// let result = x.search("Old Man's War")
+// console.log(result)
+
+module.exports = Bitap;
+
+/***/ }),
+/* 2 */
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+var isArray = __webpack_require__(0);
+
+var deepValue = function deepValue(obj, path, list) {
+  if (!path) {
+    // If there's no path left, we've gotten to the object we care about.
+    list.push(obj);
+  } else {
+    var dotIndex = path.indexOf('.');
+    var firstSegment = path;
+    var remaining = null;
+
+    if (dotIndex !== -1) {
+      firstSegment = path.slice(0, dotIndex);
+      remaining = path.slice(dotIndex + 1);
+    }
+
+    var value = obj[firstSegment];
+
+    if (value !== null && value !== undefined) {
+      if (!remaining && (typeof value === 'string' || typeof value === 'number')) {
+        list.push(value.toString());
+      } else if (isArray(value)) {
+        // Search each item in the array.
+        for (var i = 0, len = value.length; i < len; i += 1) {
+          deepValue(value[i], remaining, list);
+        }
+      } else if (remaining) {
+        // An object. Recurse further.
+        deepValue(value, remaining, list);
+      }
+    }
+  }
+
+  return list;
+};
+
+module.exports = function (obj, path) {
+  return deepValue(obj, path, []);
+};
+
+/***/ }),
+/* 3 */
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+module.exports = function () {
+  var matchmask = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : [];
+  var minMatchCharLength = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : 1;
+
+  var matchedIndices = [];
+  var start = -1;
+  var end = -1;
+  var i = 0;
+
+  for (var len = matchmask.length; i < len; i += 1) {
+    var match = matchmask[i];
+    if (match && start === -1) {
+      start = i;
+    } else if (!match && start !== -1) {
+      end = i - 1;
+      if (end - start + 1 >= minMatchCharLength) {
+        matchedIndices.push([start, end]);
+      }
+      start = -1;
+    }
+  }
+
+  // (i-1 - start) + 1 => i - start
+  if (matchmask[i - 1] && i - start >= minMatchCharLength) {
+    matchedIndices.push([start, i - 1]);
+  }
+
+  return matchedIndices;
+};
+
+/***/ }),
+/* 4 */
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+module.exports = function (pattern) {
+  var mask = {};
+  var len = pattern.length;
+
+  for (var i = 0; i < len; i += 1) {
+    mask[pattern.charAt(i)] = 0;
+  }
+
+  for (var _i = 0; _i < len; _i += 1) {
+    mask[pattern.charAt(_i)] |= 1 << len - _i - 1;
+  }
+
+  return mask;
+};
+
+/***/ }),
+/* 5 */
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+var SPECIAL_CHARS_REGEX = /[\-\[\]\/\{\}\(\)\*\+\?\.\\\^\$\|]/g;
+
+module.exports = function (text, pattern) {
+  var tokenSeparator = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : / +/g;
+
+  var regex = new RegExp(pattern.replace(SPECIAL_CHARS_REGEX, '\\$&').replace(tokenSeparator, '|'));
+  var matches = text.match(regex);
+  var isMatch = !!matches;
+  var matchedIndices = [];
+
+  if (isMatch) {
+    for (var i = 0, matchesLen = matches.length; i < matchesLen; i += 1) {
+      var match = matches[i];
+      matchedIndices.push([text.indexOf(match), match.length - 1]);
+    }
+  }
+
+  return {
+    // TODO: revisit this score
+    score: isMatch ? 0.5 : 1,
+    isMatch: isMatch,
+    matchedIndices: matchedIndices
+  };
+};
+
+/***/ }),
+/* 6 */
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+module.exports = function (pattern, _ref) {
+  var _ref$errors = _ref.errors,
+      errors = _ref$errors === undefined ? 0 : _ref$errors,
+      _ref$currentLocation = _ref.currentLocation,
+      currentLocation = _ref$currentLocation === undefined ? 0 : _ref$currentLocation,
+      _ref$expectedLocation = _ref.expectedLocation,
+      expectedLocation = _ref$expectedLocation === undefined ? 0 : _ref$expectedLocation,
+      _ref$distance = _ref.distance,
+      distance = _ref$distance === undefined ? 100 : _ref$distance;
+
+  var accuracy = errors / pattern.length;
+  var proximity = Math.abs(expectedLocation - currentLocation);
+
+  if (!distance) {
+    // Dodge divide by zero error.
+    return proximity ? 1.0 : accuracy;
+  }
+
+  return accuracy + proximity / distance;
+};
+
+/***/ }),
+/* 7 */
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+var bitapScore = __webpack_require__(6);
+var matchedIndices = __webpack_require__(3);
+
+module.exports = function (text, pattern, patternAlphabet, _ref) {
+  var _ref$location = _ref.location,
+      location = _ref$location === undefined ? 0 : _ref$location,
+      _ref$distance = _ref.distance,
+      distance = _ref$distance === undefined ? 100 : _ref$distance,
+      _ref$threshold = _ref.threshold,
+      threshold = _ref$threshold === undefined ? 0.6 : _ref$threshold,
+      _ref$findAllMatches = _ref.findAllMatches,
+      findAllMatches = _ref$findAllMatches === undefined ? false : _ref$findAllMatches,
+      _ref$minMatchCharLeng = _ref.minMatchCharLength,
+      minMatchCharLength = _ref$minMatchCharLeng === undefined ? 1 : _ref$minMatchCharLeng;
+
+  var expectedLocation = location;
+  // Set starting location at beginning text and initialize the alphabet.
+  var textLen = text.length;
+  // Highest score beyond which we give up.
+  var currentThreshold = threshold;
+  // Is there a nearby exact match? (speedup)
+  var bestLocation = text.indexOf(pattern, expectedLocation);
+
+  var patternLen = pattern.length;
+
+  // a mask of the matches
+  var matchMask = [];
+  for (var i = 0; i < textLen; i += 1) {
+    matchMask[i] = 0;
+  }
+
+  if (bestLocation !== -1) {
+    var score = bitapScore(pattern, {
+      errors: 0,
+      currentLocation: bestLocation,
+      expectedLocation: expectedLocation,
+      distance: distance
+    });
+    currentThreshold = Math.min(score, currentThreshold);
+
+    // What about in the other direction? (speed up)
+    bestLocation = text.lastIndexOf(pattern, expectedLocation + patternLen);
+
+    if (bestLocation !== -1) {
+      var _score = bitapScore(pattern, {
+        errors: 0,
+        currentLocation: bestLocation,
+        expectedLocation: expectedLocation,
+        distance: distance
+      });
+      currentThreshold = Math.min(_score, currentThreshold);
+    }
+  }
+
+  // Reset the best location
+  bestLocation = -1;
+
+  var lastBitArr = [];
+  var finalScore = 1;
+  var binMax = patternLen + textLen;
+
+  var mask = 1 << patternLen - 1;
+
+  for (var _i = 0; _i < patternLen; _i += 1) {
+    // Scan for the best match; each iteration allows for one more error.
+    // Run a binary search to determine how far from the match location we can stray
+    // at this error level.
+    var binMin = 0;
+    var binMid = binMax;
+
+    while (binMin < binMid) {
+      var _score3 = bitapScore(pattern, {
+        errors: _i,
+        currentLocation: expectedLocation + binMid,
+        expectedLocation: expectedLocation,
+        distance: distance
+      });
+
+      if (_score3 <= currentThreshold) {
+        binMin = binMid;
+      } else {
+        binMax = binMid;
+      }
+
+      binMid = Math.floor((binMax - binMin) / 2 + binMin);
+    }
+
+    // Use the result from this iteration as the maximum for the next.
+    binMax = binMid;
+
+    var start = Math.max(1, expectedLocation - binMid + 1);
+    var finish = findAllMatches ? textLen : Math.min(expectedLocation + binMid, textLen) + patternLen;
+
+    // Initialize the bit array
+    var bitArr = Array(finish + 2);
+
+    bitArr[finish + 1] = (1 << _i) - 1;
+
+    for (var j = finish; j >= start; j -= 1) {
+      var currentLocation = j - 1;
+      var charMatch = patternAlphabet[text.charAt(currentLocation)];
+
+      if (charMatch) {
+        matchMask[currentLocation] = 1;
+      }
+
+      // First pass: exact match
+      bitArr[j] = (bitArr[j + 1] << 1 | 1) & charMatch;
+
+      // Subsequent passes: fuzzy match
+      if (_i !== 0) {
+        bitArr[j] |= (lastBitArr[j + 1] | lastBitArr[j]) << 1 | 1 | lastBitArr[j + 1];
+      }
+
+      if (bitArr[j] & mask) {
+        finalScore = bitapScore(pattern, {
+          errors: _i,
+          currentLocation: currentLocation,
+          expectedLocation: expectedLocation,
+          distance: distance
+        });
+
+        // This match will almost certainly be better than any existing match.
+        // But check anyway.
+        if (finalScore <= currentThreshold) {
+          // Indeed it is
+          currentThreshold = finalScore;
+          bestLocation = currentLocation;
+
+          // Already passed `loc`, downhill from here on in.
+          if (bestLocation <= expectedLocation) {
+            break;
+          }
+
+          // When passing `bestLocation`, don't exceed our current distance from `expectedLocation`.
+          start = Math.max(1, 2 * expectedLocation - bestLocation);
+        }
+      }
+    }
+
+    // No hope for a (better) match at greater error levels.
+    var _score2 = bitapScore(pattern, {
+      errors: _i + 1,
+      currentLocation: expectedLocation,
+      expectedLocation: expectedLocation,
+      distance: distance
+    });
+
+    if (_score2 > currentThreshold) {
+      break;
+    }
+
+    lastBitArr = bitArr;
+  }
+
+  // Count exact matches (those with a score of 0) to be "almost" exact
+  return {
+    isMatch: bestLocation >= 0,
+    score: finalScore === 0 ? 0.001 : finalScore,
+    matchedIndices: matchedIndices(matchMask, minMatchCharLength)
+  };
+};
+
+/***/ }),
+/* 8 */
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+var Bitap = __webpack_require__(1);
+var deepValue = __webpack_require__(2);
+var isArray = __webpack_require__(0);
+
+var Fuse = function () {
+  function Fuse(list, _ref) {
+    var _ref$location = _ref.location,
+        location = _ref$location === undefined ? 0 : _ref$location,
+        _ref$distance = _ref.distance,
+        distance = _ref$distance === undefined ? 100 : _ref$distance,
+        _ref$threshold = _ref.threshold,
+        threshold = _ref$threshold === undefined ? 0.6 : _ref$threshold,
+        _ref$maxPatternLength = _ref.maxPatternLength,
+        maxPatternLength = _ref$maxPatternLength === undefined ? 32 : _ref$maxPatternLength,
+        _ref$caseSensitive = _ref.caseSensitive,
+        caseSensitive = _ref$caseSensitive === undefined ? false : _ref$caseSensitive,
+        _ref$tokenSeparator = _ref.tokenSeparator,
+        tokenSeparator = _ref$tokenSeparator === undefined ? / +/g : _ref$tokenSeparator,
+        _ref$findAllMatches = _ref.findAllMatches,
+        findAllMatches = _ref$findAllMatches === undefined ? false : _ref$findAllMatches,
+        _ref$minMatchCharLeng = _ref.minMatchCharLength,
+        minMatchCharLength = _ref$minMatchCharLeng === undefined ? 1 : _ref$minMatchCharLeng,
+        _ref$id = _ref.id,
+        id = _ref$id === undefined ? null : _ref$id,
+        _ref$keys = _ref.keys,
+        keys = _ref$keys === undefined ? [] : _ref$keys,
+        _ref$shouldSort = _ref.shouldSort,
+        shouldSort = _ref$shouldSort === undefined ? true : _ref$shouldSort,
+        _ref$getFn = _ref.getFn,
+        getFn = _ref$getFn === undefined ? deepValue : _ref$getFn,
+        _ref$sortFn = _ref.sortFn,
+        sortFn = _ref$sortFn === undefined ? function (a, b) {
+      return a.score - b.score;
+    } : _ref$sortFn,
+        _ref$tokenize = _ref.tokenize,
+        tokenize = _ref$tokenize === undefined ? false : _ref$tokenize,
+        _ref$matchAllTokens = _ref.matchAllTokens,
+        matchAllTokens = _ref$matchAllTokens === undefined ? false : _ref$matchAllTokens,
+        _ref$includeMatches = _ref.includeMatches,
+        includeMatches = _ref$includeMatches === undefined ? false : _ref$includeMatches,
+        _ref$includeScore = _ref.includeScore,
+        includeScore = _ref$includeScore === undefined ? false : _ref$includeScore,
+        _ref$verbose = _ref.verbose,
+        verbose = _ref$verbose === undefined ? false : _ref$verbose;
+
+    _classCallCheck(this, Fuse);
+
+    this.options = {
+      location: location,
+      distance: distance,
+      threshold: threshold,
+      maxPatternLength: maxPatternLength,
+      isCaseSensitive: caseSensitive,
+      tokenSeparator: tokenSeparator,
+      findAllMatches: findAllMatches,
+      minMatchCharLength: minMatchCharLength,
+      id: id,
+      keys: keys,
+      includeMatches: includeMatches,
+      includeScore: includeScore,
+      shouldSort: shouldSort,
+      getFn: getFn,
+      sortFn: sortFn,
+      verbose: verbose,
+      tokenize: tokenize,
+      matchAllTokens: matchAllTokens
+    };
+
+    this.setCollection(list);
+  }
+
+  _createClass(Fuse, [{
+    key: 'setCollection',
+    value: function setCollection(list) {
+      this.list = list;
+      return list;
+    }
+  }, {
+    key: 'search',
+    value: function search(pattern) {
+      this._log('---------\nSearch pattern: "' + pattern + '"');
+
+      var _prepareSearchers2 = this._prepareSearchers(pattern),
+          tokenSearchers = _prepareSearchers2.tokenSearchers,
+          fullSearcher = _prepareSearchers2.fullSearcher;
+
+      var _search2 = this._search(tokenSearchers, fullSearcher),
+          weights = _search2.weights,
+          results = _search2.results;
+
+      this._computeScore(weights, results);
+
+      if (this.options.shouldSort) {
+        this._sort(results);
+      }
+
+      return this._format(results);
+    }
+  }, {
+    key: '_prepareSearchers',
+    value: function _prepareSearchers() {
+      var pattern = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : '';
+
+      var tokenSearchers = [];
+
+      if (this.options.tokenize) {
+        // Tokenize on the separator
+        var tokens = pattern.split(this.options.tokenSeparator);
+        for (var i = 0, len = tokens.length; i < len; i += 1) {
+          tokenSearchers.push(new Bitap(tokens[i], this.options));
+        }
+      }
+
+      var fullSearcher = new Bitap(pattern, this.options);
+
+      return { tokenSearchers: tokenSearchers, fullSearcher: fullSearcher };
+    }
+  }, {
+    key: '_search',
+    value: function _search() {
+      var tokenSearchers = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : [];
+      var fullSearcher = arguments[1];
+
+      var list = this.list;
+      var resultMap = {};
+      var results = [];
+
+      // Check the first item in the list, if it's a string, then we assume
+      // that every item in the list is also a string, and thus it's a flattened array.
+      if (typeof list[0] === 'string') {
+        // Iterate over every item
+        for (var i = 0, len = list.length; i < len; i += 1) {
+          this._analyze({
+            key: '',
+            value: list[i],
+            record: i,
+            index: i
+          }, {
+            resultMap: resultMap,
+            results: results,
+            tokenSearchers: tokenSearchers,
+            fullSearcher: fullSearcher
+          });
+        }
+
+        return { weights: null, results: results };
+      }
+
+      // Otherwise, the first item is an Object (hopefully), and thus the searching
+      // is done on the values of the keys of each item.
+      var weights = {};
+      for (var _i = 0, _len = list.length; _i < _len; _i += 1) {
+        var item = list[_i];
+        // Iterate over every key
+        for (var j = 0, keysLen = this.options.keys.length; j < keysLen; j += 1) {
+          var key = this.options.keys[j];
+          if (typeof key !== 'string') {
+            weights[key.name] = {
+              weight: 1 - key.weight || 1
+            };
+            if (key.weight <= 0 || key.weight > 1) {
+              throw new Error('Key weight has to be > 0 and <= 1');
+            }
+            key = key.name;
+          } else {
+            weights[key] = {
+              weight: 1
+            };
+          }
+
+          this._analyze({
+            key: key,
+            value: this.options.getFn(item, key),
+            record: item,
+            index: _i
+          }, {
+            resultMap: resultMap,
+            results: results,
+            tokenSearchers: tokenSearchers,
+            fullSearcher: fullSearcher
+          });
+        }
+      }
+
+      return { weights: weights, results: results };
+    }
+  }, {
+    key: '_analyze',
+    value: function _analyze(_ref2, _ref3) {
+      var key = _ref2.key,
+          _ref2$arrayIndex = _ref2.arrayIndex,
+          arrayIndex = _ref2$arrayIndex === undefined ? -1 : _ref2$arrayIndex,
+          value = _ref2.value,
+          record = _ref2.record,
+          index = _ref2.index;
+      var _ref3$tokenSearchers = _ref3.tokenSearchers,
+          tokenSearchers = _ref3$tokenSearchers === undefined ? [] : _ref3$tokenSearchers,
+          _ref3$fullSearcher = _ref3.fullSearcher,
+          fullSearcher = _ref3$fullSearcher === undefined ? [] : _ref3$fullSearcher,
+          _ref3$resultMap = _ref3.resultMap,
+          resultMap = _ref3$resultMap === undefined ? {} : _ref3$resultMap,
+          _ref3$results = _ref3.results,
+          results = _ref3$results === undefined ? [] : _ref3$results;
+
+      // Check if the texvaluet can be searched
+      if (value === undefined || value === null) {
+        return;
+      }
+
+      var exists = false;
+      var averageScore = -1;
+      var numTextMatches = 0;
+
+      if (typeof value === 'string') {
+        this._log('\nKey: ' + (key === '' ? '-' : key));
+
+        var mainSearchResult = fullSearcher.search(value);
+        this._log('Full text: "' + value + '", score: ' + mainSearchResult.score);
+
+        if (this.options.tokenize) {
+          var words = value.split(this.options.tokenSeparator);
+          var scores = [];
+
+          for (var i = 0; i < tokenSearchers.length; i += 1) {
+            var tokenSearcher = tokenSearchers[i];
+
+            this._log('\nPattern: "' + tokenSearcher.pattern + '"');
+
+            // let tokenScores = []
+            var hasMatchInText = false;
+
+            for (var j = 0; j < words.length; j += 1) {
+              var word = words[j];
+              var tokenSearchResult = tokenSearcher.search(word);
+              var obj = {};
+              if (tokenSearchResult.isMatch) {
+                obj[word] = tokenSearchResult.score;
+                exists = true;
+                hasMatchInText = true;
+                scores.push(tokenSearchResult.score);
+              } else {
+                obj[word] = 1;
+                if (!this.options.matchAllTokens) {
+                  scores.push(1);
+                }
+              }
+              this._log('Token: "' + word + '", score: ' + obj[word]);
+              // tokenScores.push(obj)
+            }
+
+            if (hasMatchInText) {
+              numTextMatches += 1;
+            }
+          }
+
+          averageScore = scores[0];
+          var scoresLen = scores.length;
+          for (var _i2 = 1; _i2 < scoresLen; _i2 += 1) {
+            averageScore += scores[_i2];
+          }
+          averageScore = averageScore / scoresLen;
+
+          this._log('Token score average:', averageScore);
+        }
+
+        var finalScore = mainSearchResult.score;
+        if (averageScore > -1) {
+          finalScore = (finalScore + averageScore) / 2;
+        }
+
+        this._log('Score average:', finalScore);
+
+        var checkTextMatches = this.options.tokenize && this.options.matchAllTokens ? numTextMatches >= tokenSearchers.length : true;
+
+        this._log('\nCheck Matches: ' + checkTextMatches);
+
+        // If a match is found, add the item to <rawResults>, including its score
+        if ((exists || mainSearchResult.isMatch) && checkTextMatches) {
+          // Check if the item already exists in our results
+          var existingResult = resultMap[index];
+          if (existingResult) {
+            // Use the lowest score
+            // existingResult.score, bitapResult.score
+            existingResult.output.push({
+              key: key,
+              arrayIndex: arrayIndex,
+              value: value,
+              score: finalScore,
+              matchedIndices: mainSearchResult.matchedIndices
+            });
+          } else {
+            // Add it to the raw result list
+            resultMap[index] = {
+              item: record,
+              output: [{
+                key: key,
+                arrayIndex: arrayIndex,
+                value: value,
+                score: finalScore,
+                matchedIndices: mainSearchResult.matchedIndices
+              }]
+            };
+
+            results.push(resultMap[index]);
+          }
+        }
+      } else if (isArray(value)) {
+        for (var _i3 = 0, len = value.length; _i3 < len; _i3 += 1) {
+          this._analyze({
+            key: key,
+            arrayIndex: _i3,
+            value: value[_i3],
+            record: record,
+            index: index
+          }, {
+            resultMap: resultMap,
+            results: results,
+            tokenSearchers: tokenSearchers,
+            fullSearcher: fullSearcher
+          });
+        }
+      }
+    }
+  }, {
+    key: '_computeScore',
+    value: function _computeScore(weights, results) {
+      this._log('\n\nComputing score:\n');
+
+      for (var i = 0, len = results.length; i < len; i += 1) {
+        var output = results[i].output;
+        var scoreLen = output.length;
+
+        var totalScore = 0;
+        var bestScore = 1;
+
+        for (var j = 0; j < scoreLen; j += 1) {
+          var weight = weights ? weights[output[j].key].weight : 1;
+          var score = weight === 1 ? output[j].score : output[j].score || 0.001;
+          var nScore = score * weight;
+
+          if (weight !== 1) {
+            bestScore = Math.min(bestScore, nScore);
+          } else {
+            output[j].nScore = nScore;
+            totalScore += nScore;
+          }
+        }
+
+        results[i].score = bestScore === 1 ? totalScore / scoreLen : bestScore;
+
+        this._log(results[i]);
+      }
+    }
+  }, {
+    key: '_sort',
+    value: function _sort(results) {
+      this._log('\n\nSorting....');
+      results.sort(this.options.sortFn);
+    }
+  }, {
+    key: '_format',
+    value: function _format(results) {
+      var finalOutput = [];
+
+      this._log('\n\nOutput:\n\n', JSON.stringify(results));
+
+      var transformers = [];
+
+      if (this.options.includeMatches) {
+        transformers.push(function (result, data) {
+          var output = result.output;
+          data.matches = [];
+
+          for (var i = 0, len = output.length; i < len; i += 1) {
+            var item = output[i];
+
+            if (item.matchedIndices.length === 0) {
+              continue;
+            }
+
+            var obj = {
+              indices: item.matchedIndices,
+              value: item.value
+            };
+            if (item.key) {
+              obj.key = item.key;
+            }
+            if (item.hasOwnProperty('arrayIndex') && item.arrayIndex > -1) {
+              obj.arrayIndex = item.arrayIndex;
+            }
+            data.matches.push(obj);
+          }
+        });
+      }
+
+      if (this.options.includeScore) {
+        transformers.push(function (result, data) {
+          data.score = result.score;
+        });
+      }
+
+      for (var i = 0, len = results.length; i < len; i += 1) {
+        var result = results[i];
+
+        if (this.options.id) {
+          result.item = this.options.getFn(result.item, this.options.id)[0];
+        }
+
+        if (!transformers.length) {
+          finalOutput.push(result.item);
+          continue;
+        }
+
+        var data = {
+          item: result.item
+        };
+
+        for (var j = 0, _len2 = transformers.length; j < _len2; j += 1) {
+          transformers[j](result, data);
+        }
+
+        finalOutput.push(data);
+      }
+
+      return finalOutput;
+    }
+  }, {
+    key: '_log',
+    value: function _log() {
+      if (this.options.verbose) {
+        var _console;
+
+        (_console = console).log.apply(_console, arguments);
+      }
+    }
+  }]);
+
+  return Fuse;
+}();
+
+module.exports = Fuse;
+
+/***/ })
+/******/ ]);
+});
+
+},{}],3:[function(require,module,exports){
+(function (global){
+// browserify webnypl.js -o web.js
+"use strict";
+global.nypl = require('./interpreter');
+global.inspect = require('util').inspect;
+
+
+}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
+},{"./interpreter":1,"util":7}],4:[function(require,module,exports){
 // shim for using process in browser
 var process = module.exports = {};
 
@@ -35,25 +1556,40 @@ var process = module.exports = {};
 var cachedSetTimeout;
 var cachedClearTimeout;
 
+function defaultSetTimout() {
+    throw new Error('setTimeout has not been defined');
+}
+function defaultClearTimeout () {
+    throw new Error('clearTimeout has not been defined');
+}
 (function () {
     try {
-        cachedSetTimeout = setTimeout;
-    } catch (e) {
-        cachedSetTimeout = function () {
-            throw new Error('setTimeout is not defined');
+        if (typeof setTimeout === 'function') {
+            cachedSetTimeout = setTimeout;
+        } else {
+            cachedSetTimeout = defaultSetTimout;
         }
+    } catch (e) {
+        cachedSetTimeout = defaultSetTimout;
     }
     try {
-        cachedClearTimeout = clearTimeout;
-    } catch (e) {
-        cachedClearTimeout = function () {
-            throw new Error('clearTimeout is not defined');
+        if (typeof clearTimeout === 'function') {
+            cachedClearTimeout = clearTimeout;
+        } else {
+            cachedClearTimeout = defaultClearTimeout;
         }
+    } catch (e) {
+        cachedClearTimeout = defaultClearTimeout;
     }
 } ())
 function runTimeout(fun) {
     if (cachedSetTimeout === setTimeout) {
         //normal enviroments in sane situations
+        return setTimeout(fun, 0);
+    }
+    // if setTimeout wasn't available but was latter defined
+    if ((cachedSetTimeout === defaultSetTimout || !cachedSetTimeout) && setTimeout) {
+        cachedSetTimeout = setTimeout;
         return setTimeout(fun, 0);
     }
     try {
@@ -74,6 +1610,11 @@ function runTimeout(fun) {
 function runClearTimeout(marker) {
     if (cachedClearTimeout === clearTimeout) {
         //normal enviroments in sane situations
+        return clearTimeout(marker);
+    }
+    // if clearTimeout wasn't available but was latter defined
+    if ((cachedClearTimeout === defaultClearTimeout || !cachedClearTimeout) && clearTimeout) {
+        cachedClearTimeout = clearTimeout;
         return clearTimeout(marker);
     }
     try {
@@ -174,6 +1715,10 @@ process.off = noop;
 process.removeListener = noop;
 process.removeAllListeners = noop;
 process.emit = noop;
+process.prependListener = noop;
+process.prependOnceListener = noop;
+
+process.listeners = function (name) { return [] }
 
 process.binding = function (name) {
     throw new Error('process.binding is not supported');
@@ -185,14 +1730,39 @@ process.chdir = function (dir) {
 };
 process.umask = function() { return 0; };
 
-},{}],3:[function(require,module,exports){
+},{}],5:[function(require,module,exports){
+if (typeof Object.create === 'function') {
+  // implementation from standard node.js 'util' module
+  module.exports = function inherits(ctor, superCtor) {
+    ctor.super_ = superCtor
+    ctor.prototype = Object.create(superCtor.prototype, {
+      constructor: {
+        value: ctor,
+        enumerable: false,
+        writable: true,
+        configurable: true
+      }
+    });
+  };
+} else {
+  // old school shim for old browsers
+  module.exports = function inherits(ctor, superCtor) {
+    ctor.super_ = superCtor
+    var TempCtor = function () {}
+    TempCtor.prototype = superCtor.prototype
+    ctor.prototype = new TempCtor()
+    ctor.prototype.constructor = ctor
+  }
+}
+
+},{}],6:[function(require,module,exports){
 module.exports = function isBuffer(arg) {
   return arg && typeof arg === 'object'
     && typeof arg.copy === 'function'
     && typeof arg.fill === 'function'
     && typeof arg.readUInt8 === 'function';
 }
-},{}],4:[function(require,module,exports){
+},{}],7:[function(require,module,exports){
 (function (process,global){
 // Copyright Joyent, Inc. and other Node contributors.
 //
@@ -782,628 +2352,4 @@ function hasOwnProperty(obj, prop) {
 }
 
 }).call(this,require('_process'),typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./support/isBuffer":3,"_process":2,"inherits":1}],5:[function(require,module,exports){
-"use strict";
-var util = require("util");
-var exports = module.exports = {};
-
-class Token {
-    constructor(line, column) {
-        this.line = line;
-        this.col = column;
-        this.text = ""; // inner text, e.g. string without quotes
-        this.lexeme = ""; // full token text, e.g. string with quotes
-    }
-}
-
-class Word extends Token {
-    constructor(column, word) {
-        super(0, column);
-        this.text = word;
-        this.lexeme = word;
-    }
-}
-
-class Definition extends Token{
-    constructor(column, name, content, tokens) {
-        super(0, column);
-        this.name = name;
-        this.code = content;
-        this.tokens = tokens;
-        this.text = content;
-        this.lexeme = content;
-    }
-}
-
-
-class Literal extends Token {
-    constructor(column, text) {
-        super(0, column);
-        this.text = text;
-        this.lexeme = text;
-    }
-}
-
-class NumberLiteral extends Literal {
-    constructor(column, text) {
-        super(column, text);
-    }
-}
-
-class StringLiteral extends Literal {
-    constructor(column, text) {
-        super(column, text);
-        this.lexeme = '"' + text + '"';
-    }
-}
-
-class Quotation extends Literal {
-    constructor(column, col, text) {
-        super(column, text);
-        this.col = col
-        this.lexeme = '(' + text + ')';
-    }
-}
-
-var log = console.log;
-
-var parse = function(code, _context) {
-    let pos = 0; // points to the next character to be read
-    const EOF = -1;
-    let context = _context || {"offset" : 0};
-
-    let getColumn = () => {
-        return context.offset + pos-1;
-    }
-
-    let scanningError = (msg) => {
-        return "ScanningError at "+(getColumn())+": " + msg;
-    }
-
-    let peek = () => {
-        if (pos >= code.length) {
-            return EOF;
-        }
-
-        let c = code[pos];
-        return c;
-    };
-
-    let getLast = () => {
-        if (pos > code.length) {
-            return EOF;
-        }
-
-        return code[pos-1];
-    }
-
-    let read = () => {
-        if (pos >= code.length) {
-            return EOF;
-        }
-        let c = code[pos];
-        pos++;
-        return c;
-    }
-
-    let program = () => {
-    };
-
-    let isBuiltin = (s) => {
-        return /[a-zäöå\.+-/*%!?=<>t]/.test(s);
-    }
-
-    let isUserword = (s) => {
-        return /[A-ZÄÖÅ]/.test(s);
-    }
-
-    let isWhitespace = (s) => {
-        return /\s/.test(s);
-    }
-
-    let isDigit = (s) => {
-        if (s == EOF) { return false; } // EOF = -1 casts to "-1" which matches
-        return /\d/.test(s);
-    }
-
-    let in_string = false;
-    let c = read();
-    let current = "";
-
-    // We assume isDigit(read()) = true
-    let readNumber = () => {
-        let digit = getLast();
-
-        while (isDigit(peek())) {
-            digit += read();
-        }
-
-        if (peek() == ".") {
-            digit += read();
-            while (isDigit(peek())) {
-                digit += read();
-            }
-        }
-
-        let number = new NumberLiteral(getColumn(), digit);
-        return number;
-    }
-
-    let readWord = () => {
-        // All identifiers are single characters.
-        return new Word(getColumn(), getLast());
-    }
-
-    let readString = () => {
-        let str = "";
-
-        let c = read();
-        while (c != EOF) {
-            if (c == "\\") {
-                let esc = read();
-                let escapes = {
-                    "n" : "\n",
-                    "t" : "\t",
-                    '"' : '"',
-                }
-                if (esc in escapes) {
-                    str += escapes[esc];
-                } else {
-                    throw scanningError("Invalid escape char: " + esc);
-                }
-            } else if (c == "\"") {
-                break;
-            } else {
-                str += c;
-            }
-
-            c = read();
-        }
-
-        return new StringLiteral(getColumn(), str);
-    }
-
-    let skipWhitespace = () => {
-        while (isWhitespace(peek()) && peek() != EOF) {
-            read();
-        }
-    }
-
-    let readDefinition = () => {
-        skipWhitespace();
-        let userword = read();
-        let c = read();
-        let usercode = ""
-        while (c != ";") {
-            if (peek() == EOF) {
-                throw scanningError("Unexpected EOF when reading a definition.");
-            }
-            usercode += c;
-            c = read();
-        }
-
-        var tokens = parse(usercode, {
-            "desc" : "definition of "+userword,
-            "offset" : getColumn()});
-        return new Definition(getColumn(), userword, usercode, tokens);
-    }
-
-    let readQuotation = () => {
-        let col = getColumn();
-        let quot = "";
-        let parenDepth = 1;
-
-        let c = read();
-
-        while (parenDepth > 0) {
-            if (c == EOF) {
-                throw scanningError("Unexpected EOF when reading a quotation.");
-            }
-
-            if (c == '"') {quot += '"' + readString().text }
-            if (c == "(") {parenDepth++;}
-            if (c == ")") {
-                parenDepth--;
-                if (parenDepth == 0) {
-                    break;
-                }
-            }
-
-            quot += c;
-            c = read();
-        }
-
-        return new Quotation(getColumn(), col, quot);
-    }
-
-    let tokens = [];
-
-    while (c != EOF) {
-        //log("c:'" + c + "'");
-        if (!isWhitespace(c)) {
-            if (c == '"') {
-                tokens.push(readString());
-            } else if (isDigit(c) || c == '-' && isDigit(peek())) {
-                tokens.push(readNumber());
-            } else if (isUserword(c) || isBuiltin(c)) {
-                tokens.push(readWord());
-            } else if (c == ':') {
-                tokens.push(readDefinition());
-            } else if (c == '(') {
-                tokens.push(readQuotation());
-            } else {
-                throw scanningError("Invalid character '" + c + "' at " + (getColumn()));
-            }
-        }
-        c = read();
-    }
-
-    return tokens;
-}
-
-class Value {
-    constructor(type, val, col) {
-        this.type = type;
-        this.val = val;
-        this.col = col;
-    }
-
-    shortType() {
-        let abbr = {
-            "string" : "s",
-            "bool" : "b",
-            "number" : "n",
-            "quotation" : "q"
-        };
-
-        if (this.type in abbr) {return abbr[this.type]};
-        return this.type;
-    }
-
-    toString() {
-        if (this.type == "quotation") {
-            return "q" + this.col;
-        }
-        return this.shortType() + ":" + this.val;
-        //return this.val;
-    }
-
-    // Returns a string that returns the exact same value when evaluated.
-    toLiteral() {
-        if (this.type == "string") {
-            return '"' + this.val + '"';
-        } else if (this.type == "bool") {
-            return this.val ? "1" : "0";
-        } else if (this.type == "number") {
-            return this.val;
-        } else if (this.type == "quotation") {
-            return '(' + this.val + ')';
-        }
-        return this.val;
-    }
-}
-
-
-let runtimeError = function(msg) {
-    return "runtimeError: " + msg;
-}
-
-
-let execute = function(prog, outputCallback, in_words, in_stack, in_indent) {
-    // The caller can pass in a stack and a dictionary context.
-    // They are used in quotation invocation.
-    let stack = in_stack || [];
-    let indent = in_indent || 0;
-
-    let pop = () => {
-        if (stack.length == 0) {
-            throw runtimeError("Stack underflow!");
-        }
-        return stack.pop();
-    }
-
-    let push = (a) => {
-        stack.push(a);
-    }
-
-    let output = outputCallback || ((obj) => {
-        console.log(">> ", obj);
-    })
-
-    let makenum = (v) => (new Value("number", v));
-    let makebool = (v) => (new Value("bool", v));
-    let type_assert = function(type, v) {
-        if (v.type != type){throw runtimeError("Got value of type " + v.type + " instead of " + type + "!")}
-    }
-
-    let runQuotation = (src) => {
-        let new_prog = parse(src.val, {"offset" : src.col });
-        //log("  src: '" + src.val + "'");
-        //log("  compiled: ", new_prog);
-        execute(new_prog, outputCallback, words, stack, indent+1);
-    }
-
-    let map_list_index = (ind, the_list) => {
-        let new_ind = ind;
-        if (ind < 0) {
-            new_ind = the_list.length + ind;
-        }
-
-        if (new_ind >= the_list.length || new_ind < 0) {
-            throw runtimeError("Trying to read index " + ind + " from list of size " + the_list.length + "!");
-        }
-
-        return new_ind;
-    };
-
-    let builtinWords = {
-        "d" : () => {
-            let a = pop();
-            push(a);
-            push(a);},
-        "x" : () => {
-            pop();},
-        "." : () => {output(pop().val)},
-        "s" : () => {
-            let a = pop();
-            let b = pop();
-            stack.push(a);
-            stack.push(b);
-        },
-        "r" : () => {
-            let c = pop();
-            let b = pop();
-            let a = pop();
-            push(c);
-            push(a);
-            push(b);
-        },
-        "+" : () => {
-            let a = pop();
-            let b = pop();
-            type_assert("number", a);
-            type_assert("number", b);
-            stack.push(makenum(b.val + a.val));},
-        "-" : () => {
-            let a = pop();
-            let b = pop();
-            type_assert("number", a);
-            type_assert("number", b);
-            stack.push(makenum(b.val - a.val));},
-        "/" : () => {
-            let a = pop();
-            let b = pop();
-            type_assert("number", a);
-            type_assert("number", b);
-            stack.push(makenum(b.val / a.val));},
-        "%" : () => {
-            let a = pop();
-            let b = pop();
-            type_assert("number", a);
-            type_assert("number", b);
-            stack.push(makenum(b.val % a.val));},
-        "*" : () => {
-            let a = pop();
-            let b = pop();
-            type_assert("number", a);
-            type_assert("number", b);
-            push(makenum(a.val * b.val))},
-        "=" : () => {
-            let a = pop();
-            let b = pop();
-            // allow true == 1.0 --> true
-            stack.push(makebool(a.val == b.val));},
-        "<" : () => {
-            let a = pop();
-            let b = pop();
-            stack.push(makebool(b.val < a.val));},
-        ">" : () => {
-            let a = pop();
-            let b = pop();
-            stack.push(makebool(b.val > a.val));},
-        "!" : () => {
-            let a = pop();
-            if (a.val) {
-                push(makebool(false));
-            } else {
-                push(makebool(true));
-            }},
-        "?" : () => {
-            let else_quot = pop();
-            let then_quot = pop();
-            let if_quot = pop();
-            type_assert("quotation", if_quot);
-            type_assert("quotation", then_quot);
-            type_assert("quotation", else_quot);
-            runQuotation(if_quot);
-            let result = pop();
-            type_assert("bool", result);
-            if (result.val) {
-                runQuotation(then_quot);
-            } else {
-                runQuotation(else_quot);
-            }
-        },
-        "t" : () => {
-            let src = pop();
-            let amt = pop();
-            type_assert("number", amt);
-            type_assert("quotation", src);
-            let new_prog = parse(src.val, {"offset" : src.col });
-            let times = amt.val;
-            while (times > 0) {
-                times--;
-                execute(new_prog, outputCallback, words, stack, indent+1);
-            }
-        },
-        "i" : () => {
-            let src = pop();
-            type_assert("quotation", src);
-            runQuotation(src);
-        },
-        "å" : () => {
-            output(stack);
-        },
-        "g" : () => {
-            let index = pop();
-            let list = pop();
-            type_assert("number", index);
-            type_assert("quotation", list);
-
-            let ind = Math.floor(index.val);
-            let list_tokens = parse(list.val, {"offset" : list.col });
-
-            if (ind < 0 || ind >= list_tokens.length) {
-                throw runtimeError("Index " + ind + " out of range.");
-            }
-
-            // We extract an item from the list and return it wrapped in a
-            // quotation. If the programmer wants the underlying value the
-            // quotation can be just evaluated.
-
-            let item = list_tokens[ind];
-            //console.log(list);
-            //console.log(list_tokens);
-            //console.log("index", ind);
-            //console.log(item);
-
-            push(new Value("quotation", item.lexeme, item.col));
-        },
-        "c" : () => {
-            let separator = pop();
-            let str = pop();
-            type_assert("string", separator);
-            type_assert("string", str);
-            // log(separator);
-            // log(str);
-            let list = str.val.split(separator.val);
-            // log(list);
-            let stringified_list = (list.map((x) => {return '"' + x + '"';})).join(" ");
-            // log(stringified_list);
-            // TODO str.col is incorrect, should be actually position of "c"
-            push(new Value("quotation", stringified_list, str.col));
-        },
-        "m" : () => {
-            let func = pop();
-            let list = pop();
-            type_assert("quotation", func);
-            type_assert("quotation", list);
-
-            let list_tokens = parse(list.val, {"offset" : list.col });
-            let func_tokens = parse(func.val, {"offset" : func.col });
-
-            for (let i = 0; i < list_tokens.length; i++) {
-                // Read the array slot value from index i using the built-in
-                // word g, and push it up on the stack ready for the 'func'
-                // quotation to consume.
-                let token = list_tokens[i];
-                let new_prog = parse(i + "g", {"offset" : token.col });
-                push(list);
-                execute(new_prog, outputCallback, words, stack, indent);
-                execute(func_tokens, outputCallback, words, stack, indent+1);
-            }
-        },
-        "w" : () => {
-            let number_val = pop();
-            type_assert("number", number_val);
-            let count = number_val.val;
-
-            if (count < 0) {
-                throw runtimeError("Trying to read " + count + " values from the stack.");
-            }
-
-            let literals = [];
-
-            for (let i = 0; i < count; i++) {
-                let value = pop();
-                literals.push(value.toLiteral());
-            }
-
-            let literal_string = '(' + literals.join(" ") + ')';
-            // console.log("literal string: " + literal_string);
-
-            // Push the collected values to the stack as a quotation.
-
-            // TODO numberval_col is incorrect, should be position of w
-            let program = parse(literal_string, {"offset" : number_val.col });
-            execute(program, outputCallback, words, stack, indent);
-        },
-        "u" : () => {
-            let list = pop();
-            type_assert("quotation", list);
-            let list_tokens = parse(list.val, {"offset" : list.col });
-            let literals = [];
-
-            for (let token of list_tokens) {
-                literals.push(token.lexeme);
-            }
-
-            let literal_string = literals.join(" ");
-            console.log("unwrap literal string: " + literal_string);
-
-            // Push the collected values to the stack individually.
-            // TODO list.col is incorrect, should be position of w
-            let program = parse(literal_string, {"offset" : list.col });
-            execute(program, outputCallback, words, stack, indent);
-        },
-    };
-
-    let words = in_words || {};
-    Object.assign(words, builtinWords);
-
-    for (let token of prog) {
-        log(" ".repeat(indent) + token.text+ "\t" + "[" + stack + "]");
-
-        //log("--> "+inspect(token) + "\nstack: ", util.inspect(stack));
-        if (token instanceof StringLiteral) {
-            stack.push(new Value("string", token.text, token.col));
-        } else if (token instanceof Quotation) {
-            stack.push(new Value("quotation", token.text, token.col));
-        } else if (token instanceof NumberLiteral) {
-            stack.push(new Value("number", parseFloat(token.text), token.col));
-        } else if (token instanceof Word) {
-            if (!(token.text in words)) {
-                throw runtimeError("Non-existent word at "+token.col +": " + util.inspect(token));
-            }
-
-            words[token.text](stack);
-
-        } else if (token instanceof Definition) {
-            if (token.name in builtinWords) {
-                throw runtimeError("Trying to redefine builtin word at "+token.col+": " + token.name);
-            }
-
-            // The stack needs to get passed in as an argument since the variable 'stack'
-            // would otherwise point to an object instance created on an earlier execute()
-            // invocation. This is the case when running inside REPL.
-            words[token.name] = (in_stack) => {
-                execute(token.tokens, outputCallback, words, in_stack);
-            };
-
-        } else {
-            throw runtimeError("Invalid token at "+token.col+": " + util.inspect(token));
-        }
-    }
-
-    return stack
-}
-
-let run = function(src, outputCallback, logCallback, words, stack) {
-    return execute(parse(src), outputCallback, words, stack);
-}
-
-exports.parse = parse;
-exports.execute = execute;
-exports.run = run;
-
-
-},{"util":4}],6:[function(require,module,exports){
-(function (global){
-// browserify webnypl.js -o web.js
-"use strict";
-global.nypl = require('./interpreter');
-global.inspect = require('util').inspect;
-
-
-}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./interpreter":5,"util":4}]},{},[6]);
+},{"./support/isBuffer":6,"_process":4,"inherits":5}]},{},[3]);

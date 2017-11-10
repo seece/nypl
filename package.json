@@ -22,6 +22,7 @@
   },
   "homepage": "https://github.com/seece/nypl#readme",
   "dependencies": {
+    "browserify": "^14.5.0",
     "fuse.js": "^3.2.0"
   }
 }
