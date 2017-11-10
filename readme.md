@@ -174,6 +174,18 @@ Example: print `hi` five times:
 
 Lists can be executed as code.
 
+#### filter
+
+    (list) (predicate) f -- removes elements not matching predicate
+
+The predicate should take one argument and return a boolean value.
+
+#### map
+
+    (list) (transform) m -- transforms each element of a list
+
+The transform should take one argument and return a new value that will replace the old one.
+
 TODO: expand
 
 
