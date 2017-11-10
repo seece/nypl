@@ -159,7 +159,7 @@ var makeRunContext = function(stack, variables, outputCallback, externals, exec)
             const index = pop();
             const list = pop();
             push(list);
-            if (!variables.hasOwnProperty(index)) {
+            if (!list.hasOwnProperty(index)) {
                 throw runtimeError("Object has no index '"+index+"'!");
             }
             const value = list[index];
@@ -207,6 +207,22 @@ var makeRunContext = function(stack, variables, outputCallback, externals, exec)
                 if (result) {
                     out.push(list[i]);
                 }
+            }
+
+            push(out);
+        },
+        // map
+        "m" : () => {
+            let transform = pop();
+            assertType("array", transform);
+            let list = pop();
+            assertType("array", list);
+            let out = []
+
+            for (let i = 0; i < list.length; i++) {
+                push(list[i]);
+                exec(transform);
+                out.push(pop());
             }
 
             push(out);
