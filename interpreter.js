@@ -158,7 +158,7 @@ var makeRunContext = function(stack, variables, outputCallback, externals, exec)
             const index = pop();
             const list = pop();
             push(list);
-            if (!variables.hasOwnProperty(index)) {
+            if (!list.hasOwnProperty(index)) {
                 throw runtimeError("Object has no index '"+index+"'!");
             }
             const value = list[index];
