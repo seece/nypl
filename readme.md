@@ -77,6 +77,7 @@ Where `input` is the stack state before calling the word and `output` is the end
     = = equality ( a b -- true_if_equal )
     < = less than ( a b -- a < b )
     > = less than ( a b -- a > b )
+    ~ = logical negation ( a -- !a )
 
 ## I/O operators
 

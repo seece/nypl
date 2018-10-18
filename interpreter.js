@@ -109,7 +109,7 @@ var makeRunContext = function(stack, variables, outputCallback, externals, exec)
             let a = pop();
             let b = pop();
             stack.push(b > a);},
-        "!" : () => {
+        "~" : () => {
             let a = pop();
             push(!a);},
 
@@ -146,8 +146,9 @@ var makeRunContext = function(stack, variables, outputCallback, externals, exec)
         // code list invocation
         "i" : () => {
             let src = pop();
-            assertType("array", src);
-            exec(src);
+            console.log("src is", src)
+            assertType("string", src);
+            exec(parse(src, ctx)); TODO we dont have ctx here.
         },
         // stack debug
         "å" : () => {
@@ -278,12 +279,12 @@ var makeRunContext = function(stack, variables, outputCallback, externals, exec)
 
     let o = {
         call: (name) => {
-        currentCall = name;
-        if (variables.hasOwnProperty(name)) {
-            return exec(variables[name]);
-        }
-        return builtins[name]();
-    },
+            currentCall = name;
+            if (variables.hasOwnProperty(name)) {
+                return exec(variables[name]);
+            }
+            return builtins[name]();
+        },
         makeStore: (name) => {
             let f = () => {
                 let value = pop();
@@ -298,13 +299,14 @@ var makeRunContext = function(stack, variables, outputCallback, externals, exec)
             f.toString = () => {return "Store: '"+name+"'"};
 
             return f;
-        }
+        },
+        exec: exec
     }
 
     return Object.assign(o, {"builtins": builtins});
 }
 
-var parse = function(code, ctx, _debugpos) {
+var parse = function*(code, ctx, _debugpos) {
     let pos = 0; // points to the next character to be read
     const EOF = -1;
     let debugpos = _debugpos || {"offset" : 0};
@@ -460,24 +462,27 @@ var parse = function(code, ctx, _debugpos) {
             c = read();
         }
 
-        return parse(inner, Object.assign(ctx, {"offset" : getColumn()}));
+        console.log("inner:",inner);
+        let prog = parse(inner, ctx);
+        console.log("prog:",prog,prog.done)
+        return ctx.exec(prog);
     }
 
     let tokens = [];
 
     while (c != EOF) {
-        //log("c:'" + c + "'");
+        log("c:'" + c + "'");
         if (!isWhitespace(c)) {
             if (c == '"') {
-                tokens.push(readString());
+                yield readString();
             } else if (isDigit(c) || c == '-' && isDigit(peek())) {
-                tokens.push(readNumber());
+                yield readNumber();
             } else if (isUserword(c) || isBuiltin(c)) {
-                tokens.push(readCall());
+                yield readCall();
             } else if (c == ':') {
-                tokens.push(readStore());
+                yield readStore();
             } else if (c == '(') {
-                tokens.push(readList());
+                yield readList();
             } else {
                 throw parsingError("Invalid character '" + c + "' at " + (getColumn()+1));
             }
@@ -486,10 +491,10 @@ var parse = function(code, ctx, _debugpos) {
     }
 
     // We want lists to be wrapped in parens when printed.
-    tokens.toString = () => {
-        return "("+Array.prototype.toString.apply(tokens)+")";
-    }
-    return tokens;
+    //tokens.toString = () => {
+    //    return "("+Array.prototype.toString.apply(tokens)+")";
+    //}
+    //return tokens;
 }
 
 let execute = function(prog, outputCallback, externals, words, stack, indent) {
@@ -498,8 +503,11 @@ let execute = function(prog, outputCallback, externals, words, stack, indent) {
     })
 
     let pc = 0;
-    while (pc < prog.length) {
-        let value = prog[pc];
+    while (true) {
+        //let value = prog[pc];
+        let result = prog.next();
+        if (result.done) { break; }
+        let value = result.value;
         pc++;
 
         const types = {
